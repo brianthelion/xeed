@@ -10,11 +10,13 @@ import types
 import logging
 import string
 import socket
+import hashlib
 
 assert sys.version_info >= (3, 10, 12)
 
 LOG = logging.getLogger(__name__)
 PATH = os.path.abspath(__file__)
+HASH_FILE = ".last_hash"
 ENV = dict(os.environ)
 ENV["HOSTNAME"] = socket.gethostname()
 ENV["FQDN"] = socket.getfqdn()
@@ -127,6 +129,10 @@ class Blob(dict):
         assert isinstance(adict, dict)
         return cls(adict)
 
+    @classmethod
+    def empty(cls):
+        return cls.from_dict({})
+
 class CfgConfig(configparser.ConfigParser):
     BLOB_CLS = Blob
 
@@ -143,7 +149,7 @@ class CfgConfig(configparser.ConfigParser):
         return self
 
     def to_blob(self):
-        out = self.BLOB_CLS({})
+        out = self.BLOB_CLS.empty()
         for section_name, section_dict in self.items():
             for key, value in section_dict.items():
                 out.set_path(f"{section_name}.{key}", value)
@@ -197,7 +203,74 @@ class ReResolvingFormatter(ResolvingFormatter):
             return val
         return self.format(val, namespace)
 
+class CacheManager:
+    READ_SIZE = 8192
+    HASH_SIZE = 8
+    HASH_CLS = hashlib.sha256
+    CONFIG_CLS = CfgConfig
+    HASH_PATH = ".lasthash"
+    EMPTY_HASH = ""
+
+    def __init__(self, config_path):
+        self._config_path = config_path
+
+    @classmethod
+    def compute_hash(cls, path):
+        hash_obj = cls.HASH_CLS()
+        with open(path, 'rb') as f:
+            while chunk := f.read(cls.READ_SIZE):
+                hash_obj.update(chunk)
+        hash_str = hash_obj.hexdigest()
+        return hash_str[:cls.HASH_SIZE]
+
+    @property
+    def cache_dir(self):
+        blob = CONFIG_CLS \
+            .from_path(self._config_path) \
+            .to_blob()
+        return blob.get_path("DEFAULT.cachedir")
+
+    @property
+    def hash_path(self):
+        return os.path.join(self.cache_dir,
+                            self.HASH_PATH)
+
+    @property
+    def new_hash(self):
+        return self.compute_hash(self._config_path)
+
+    @property
+    def old_hash(self):
+        if not os.path.exists(self.hash_path):
+            return self.EMPTY_HASH
+        return self.read_hash()
+
+    def write_cache(self):
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
+
+    def read_hash(self):
+        with open(self.hash_path, "r") as hash_file:
+            return hash_file.read().strip()
+
+    def write_hash(self, new_hash):
+        with open(self.hash_path, "w") as hash_file:
+            hash_file.write(new_hash)
+
+    def update(self):
+        if self.new_hash == self.old_hash:
+            return False
+        self.write_cache()
+        self.write_hash(self.new_hash)
+        return True
+
+    @classmethod
+    def from_path(cls, config_path):
+        return cls(config_path)
+
+
 FORMATTER = ReResolvingFormatter(lambda x, y: x.get_path(y))
+CONFIG_CLS = CfgConfig
 
 def main():
 
@@ -207,20 +280,27 @@ def main():
     logging.basicConfig(level=cli.log_level)
 
     try:
-        config = CfgConfig.from_path(cli.config_path)
+        blob = CONFIG_CLS \
+            .from_path(cli.config_path) \
+            .to_blob()
     except FileNotFoundError as err:
         exit(str(err))
 
-    blob = config.to_blob()
+    cache = CacheManager.from_path(cli.config_path)
+    cache.update()
+
     if blob.get("tool", None) is None:
         exit(f"Config {cli.config_path} must have at least one [tool.mytool] section!")
 
     for tool_name in blob.get("tool", {}).keys():
         path = f"tool.{tool_name}"
-        cli.extend(tool_name, cmdstr=blob.get_path(f"{path}.cmdstr"))
+        cli.extend(tool_name,
+                   cmdstr=blob.get_path(f"{path}.cmdstr"))
 
     cli.parse(final=True)
-    blob.update(cli=cli.to_dict(), env=ENV, xeed=dict(PATH=PATH))
+    blob.update(cli=cli.to_dict(),
+                env=ENV,
+                xeed=dict(PATH=PATH, HASH=cache.new_hash))
     cmdstr = FORMATTER.format(blob.get_path(f"cli.cmdstr"), blob)
     LOG.debug(f">>> {cmdstr}")
     return subprocess.call(cmdstr, shell=True)
