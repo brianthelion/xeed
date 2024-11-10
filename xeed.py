@@ -11,12 +11,13 @@ import logging
 import string
 import socket
 import hashlib
+import json
+import tempfile
 
 assert sys.version_info >= (3, 10, 12)
 
 LOG = logging.getLogger(__name__)
 PATH = os.path.abspath(__file__)
-HASH_FILE = ".last_hash"
 ENV = dict(os.environ)
 ENV["HOSTNAME"] = socket.gethostname()
 ENV["FQDN"] = socket.getfqdn()
@@ -208,11 +209,10 @@ class CacheManager:
     HASH_SIZE = 8
     HASH_CLS = hashlib.sha256
     CONFIG_CLS = CfgConfig
-    HASH_PATH = ".lasthash"
     EMPTY_HASH = ""
 
-    def __init__(self, config_path):
-        self._config_path = config_path
+    def __init__(self, config_blob):
+        self._config_blob = config_blob
 
     @classmethod
     def compute_hash(cls, path):
@@ -224,20 +224,26 @@ class CacheManager:
         return hash_str[:cls.HASH_SIZE]
 
     @property
+    def config_blob(self):
+        return self._config_blob
+
+    @property
     def cache_dir(self):
-        blob = CONFIG_CLS \
-            .from_path(self._config_path) \
-            .to_blob()
-        return blob.get_path("DEFAULT.cachedir")
+        return self.config_blob \
+                   .get_path("DEFAULT.cachedir")
 
     @property
     def hash_path(self):
-        return os.path.join(self.cache_dir,
-                            self.HASH_PATH)
+        hash_file = self.config_blob.get_path("DEFAULT.hashfile")
+        return os.path.join(self.cache_dir, hash_file)
 
     @property
     def new_hash(self):
-        return self.compute_hash(self._config_path)
+        with tempfile.NamedTemporaryFile("w") as tmp:
+            blob_str = json.dumps(self.config_blob, sort_keys=True)
+            tmp.write(blob_str)
+            tmp.flush()
+            return self.compute_hash(tmp.name)
 
     @property
     def old_hash(self):
@@ -248,6 +254,20 @@ class CacheManager:
     def write_cache(self):
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
+        config_blob = self.config_blob
+        for section_name in config_blob.get("file", {}).keys():
+            self._write_one(section_name, config_blob)
+
+    def _write_one(self, blob_name, config_blob):
+        file_path = config_blob.get_path(f"file.{blob_name}.path")
+        file_path = FORMATTER.format(file_path, config_blob)
+        file_dir = os.path.dirname(file_path)
+        if not os.path.exists(file_dir):
+            os.makedirs(file_dir)
+        file_contents = config_blob.get_path(f"file.{blob_name}.contents")
+        file_contents = FORMATTER.format(file_contents, config_blob)
+        with open(file_path, "w") as open_file:
+            open_file.write(file_contents)
 
     def read_hash(self):
         with open(self.hash_path, "r") as hash_file:
@@ -266,7 +286,11 @@ class CacheManager:
 
     @classmethod
     def from_path(cls, config_path):
-        return cls(config_path)
+        raise NotImplementedError()
+
+    @classmethod
+    def from_blob(cls, config_blob):
+        return cls(config_blob)
 
 
 FORMATTER = ReResolvingFormatter(lambda x, y: x.get_path(y))
@@ -276,7 +300,6 @@ def main():
 
     cli = Cli.empty()
     cli.parse(final=False)
-
     logging.basicConfig(level=cli.log_level)
 
     try:
@@ -286,8 +309,7 @@ def main():
     except FileNotFoundError as err:
         exit(str(err))
 
-    cache = CacheManager.from_path(cli.config_path)
-    cache.update()
+    cache = CacheManager.from_blob(blob)
 
     if blob.get("tool", None) is None:
         exit(f"Config {cli.config_path} must have at least one [tool.mytool] section!")
@@ -301,6 +323,8 @@ def main():
     blob.update(cli=cli.to_dict(),
                 env=ENV,
                 xeed=dict(PATH=PATH, HASH=cache.new_hash))
+    cache.update()
+
     cmdstr = FORMATTER.format(blob.get_path(f"cli.cmdstr"), blob)
     LOG.debug(f">>> {cmdstr}")
     return subprocess.call(cmdstr, shell=True)
