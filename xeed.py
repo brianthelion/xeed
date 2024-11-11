@@ -21,6 +21,9 @@ PATH = os.path.abspath(__file__)
 ENV = dict(os.environ)
 ENV["HOSTNAME"] = socket.gethostname()
 ENV["FQDN"] = socket.getfqdn()
+USER = dict()
+USER["UID"] = os.getuid()
+USER["GID"] = os.getgid()
 
 def exit(*args, **kwargs):
     return sys.exit(*args, **kwargs)
@@ -322,7 +325,8 @@ def main():
     cli.parse(final=True)
     blob.update(cli=cli.to_dict(),
                 env=ENV,
-                xeed=dict(PATH=PATH, HASH=cache.new_hash))
+                xeed=dict(PATH=PATH, HASH=cache.new_hash),
+                user=USER)
     cache.update()
 
     cmdstr = FORMATTER.format(blob.get_path(f"cli.cmdstr"), blob)
