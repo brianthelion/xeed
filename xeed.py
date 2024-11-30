@@ -76,6 +76,13 @@ class Cli:
     def _subparsers(self):
         return self._parser.add_subparsers(dest="sub", required=True)
 
+    @functools.cached_property
+    def prefix(self):
+        ns = self._ns
+        obj = Formatter()
+        return obj.format("{path} {--config=x} {--log-level=y}",
+                          path=PATH, x=ns.config, y=ns.log_level)
+
     def extend(self, subcmd, cmdstr):
         LOG.debug(f"{subcmd} {cmdstr}")
         parser = self._subparsers.add_parser(subcmd)
@@ -84,19 +91,6 @@ class Cli:
                             nargs=argparse.REMAINDER,
                             action=StrJoin,
                             )
-
-    # @functools.cached_property
-    # def cmdstr(self):
-    #     ns = self._parser.parse_args(self._remainder)
-    #     env = types.SimpleNamespace(**os.environ)
-    #     cfg = self.config_blob
-    #     return ns.cmdstr.format(cli=ns, env=env, cfg=cfg)
-
-# class PartialInterpolationError(Exception):
-#     pass
-
-# class Interpolation(configparser.Interpolation):
-#     pass
 
 class Blob(dict):
     DELIM = "."
@@ -164,10 +158,6 @@ class TomlConfig:
 
 class Formatter(string.Formatter):
     EMPTY_VALS = [None, ""]
-    # def parse(self, format_string):
-    #     for t in super().parse(format_string):
-    #         print(t)
-    #         yield t
 
     def get_value(self, key, args, kwargs):
         if "=" not in key:
@@ -177,10 +167,6 @@ class Formatter(string.Formatter):
         if value in self.EMPTY_VALS:
             return ""
         return f"{prefix}={value}"
-
-    # def vformat(self, format_string, args, kwargs):
-    #     print("vformat", (format_string, args, kwargs))
-    #     return super().vformat(format_string, args, kwargs)
 
 class ResolvingFormatter(string.Formatter):
     def __init__(self, resolver, *args, **kwargs):
@@ -325,12 +311,12 @@ def main():
     cli.parse(final=True)
     blob.update(cli=cli.to_dict(),
                 env=ENV,
-                xeed=dict(PATH=PATH, HASH=cache.new_hash),
+                xeed=dict(PATH=PATH, HASH=cache.new_hash, PREFIX=cli.prefix),
                 user=USER)
     cache.update()
 
     cmdstr = FORMATTER.format(blob.get_path(f"cli.cmdstr"), blob)
-    LOG.debug(f">>> {cmdstr}")
+    LOG.info(cmdstr)
     return subprocess.call(cmdstr, shell=True)
 
 if __name__ == "__main__":
