@@ -13,6 +13,7 @@ import socket
 import hashlib
 import json
 import tempfile
+import getpass
 
 assert sys.version_info >= (3, 10, 12)
 
@@ -24,6 +25,7 @@ ENV["FQDN"] = socket.getfqdn()
 USER = dict()
 USER["UID"] = os.getuid()
 USER["GID"] = os.getgid()
+USER["NAME"] = getpass.getuser()
 
 def exit(*args, **kwargs):
     return sys.exit(*args, **kwargs)
