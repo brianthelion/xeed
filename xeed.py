@@ -42,7 +42,7 @@ class Cli:
 
     @classmethod
     def empty(cls):
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(add_help=False)
         for k, v in cls.OPTIONS.items():
             parser.add_argument(k, default=v)
         return cls(parser)
@@ -51,6 +51,7 @@ class Cli:
         self._parser = parser
         self._ns = None
         self._remainder = None
+        self.print_help = parser.print_help
 
     def parse(self, final=True):
         _parser = self._parser
@@ -87,12 +88,16 @@ class Cli:
 
     def extend(self, subcmd, cmdstr):
         LOG.debug(f"{subcmd} {cmdstr}")
-        parser = self._subparsers.add_parser(subcmd)
+        parser = self._subparsers.add_parser(subcmd, add_help=False)
         parser.set_defaults(cmdstr=cmdstr)
         parser.add_argument("extra_args",
                             nargs=argparse.REMAINDER,
                             action=StrJoin,
                             )
+
+    def check(self, sub):
+        return self._ns.sub == sub
+
 
 class Blob(dict):
     DELIM = "."
@@ -310,7 +315,12 @@ def main():
         cli.extend(tool_name,
                    cmdstr=blob.get_path(f"{path}.cmdstr"))
 
+    cli.extend("help", cmdstr=None)
     cli.parse(final=True)
+    if cli.check("help"):
+        cli.print_help()
+        return 0
+
     blob.update(cli=cli.to_dict(),
                 env=ENV,
                 xeed=dict(PATH=PATH, HASH=cache.new_hash, PREFIX=cli.prefix),
@@ -375,3 +385,16 @@ def test_reresolving_formatter():
     assert obj.format("This is {a.b.c}", X) == "This is 0"
     assert obj.format("This is {a.b.d}", X) == "This is 0"
     assert obj.format("This is {a.b.e}", X) == "This is 1"
+
+@pytest.fixture
+def mock_argv():
+    original_argv = sys.argv
+    mock = []
+    sys.argv = mock
+    yield mock
+    sys.argv = original_argv
+
+def test_cli_args_help(mock_argv):
+    mock_argv.extend(["./xeed.py", "help"])
+    assert main() == 0
+
