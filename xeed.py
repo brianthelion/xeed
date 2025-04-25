@@ -51,7 +51,6 @@ class Cli:
         self._parser = parser
         self._ns = None
         self._remainder = None
-        self.print_help = parser.print_help
 
     def parse(self, final=True):
         _parser = self._parser
@@ -66,6 +65,11 @@ class Cli:
 
     def to_dict(self):
         return vars(self._ns)
+
+    def print_help(self, new_hash, file=None):
+        self._parser.print_help(file=file)
+        print(file=file)
+        print(f"Current xeed hash: {new_hash}", file=file)
 
     @functools.cached_property
     def config_path(self):
@@ -319,7 +323,7 @@ def main():
     cli.extend("help", cmdstr=None)
     cli.parse(final=True)
     if cli.check("help"):
-        cli.print_help()
+        cli.print_help(cache.new_hash)
         return 0
 
     blob.update(cli=cli.to_dict(),
