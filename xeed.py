@@ -96,7 +96,8 @@ class Cli:
                             )
 
     def check(self, sub):
-        return self._ns.sub == sub
+        return self._ns is not None \
+            and self._ns.sub == sub
 
 
 class Blob(dict):
