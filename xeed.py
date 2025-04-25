@@ -375,6 +375,7 @@ def test_cfg_dir_to_blob():
     contents_x = """
     [DEFAULT]
     [one]
+    ONE: 1
     """
     contents_y = """
     [one.two]
