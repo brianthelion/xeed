@@ -139,13 +139,31 @@ class CfgConfig(configparser.ConfigParser):
     @classmethod
     def from_path(cls, path_str):
         LOG.debug(f"Loading config {path_str}")
-        with open(path_str, "r") as afile:
-            return cls.from_file(afile)
+        if not os.path.exists(path_str):
+            exit(f"Config path {path_str} does not exist!")
+        elif os.path.isfile(path_str):
+            return cls.from_file(path_str)
+        elif os.path.isdir(path_str):
+            return cls.from_dir(path_str)
+        else:
+            raise NotImplementedError()
+
 
     @classmethod
-    def from_file(cls, filelike):
+    def from_dir(cls, path_str):
+        assert os.path.exists(path_str), path_str
+        assert os.path.isdir(path_str), path_str
+        config_paths = os.listdir(path_str)
         self = cls()
-        self.read_file(filelike)
+        cls.read(config_paths)
+        return self
+
+    @classmethod
+    def from_file(cls, path_str):
+        assert os.path.exists(path_str), path_str
+        assert os.path.isfile(path_str), path_str
+        self = cls()
+        self.read(path_str)
         return self
 
     def to_blob(self):
@@ -337,18 +355,42 @@ def test_blob_paths():
     blob = Blob({"zero": {"one": 1, "two": {"three": 3}}})
     assert blob.get_path("zero.one") == 1
 
-def test_cfg_to_blob():
-    filelike = io.StringIO("""
+def test_cfg_file_to_blob():
+    contents = """
     [DEFAULT]
     [one]
     [one.two]
     three: 3
-    """)
-    config = CfgConfig.from_file(filelike)
+    """
+    with tempfile.NamedTemporaryFile("w") as config_file:
+        config_file.write(contents)
+        config_file.flush()
+        config = CfgConfig.from_file(config_file.name)
     blob = config.to_blob()
     assert blob.get_path("one.two.three") == "3"
     assert blob.get_path("one.two") == {"three": "3"}
     assert blob.get_path("one") == {"two": {"three": "3"}}
+
+def test_cfg_dir_to_blob():
+    contents_x = """
+    [DEFAULT]
+    [one]
+    """
+    contents_y = """
+    [one.two]
+    three: 3
+    """
+    with tempfile.TemporaryDirectory() as config_dir:
+        with open(f"{config_dir}/x.cfg", "w") as config_file:
+            config_file.write(contents_x)
+        with open(f"{config_dir}/y.cfg", "w") as config_file:
+            config_file.write(contents_y)
+        config = CfgConfig.from_file(config_file.name)
+    blob = config.to_blob()
+    assert blob.get_path("one.two.three") == "3"
+    assert blob.get_path("one.two") == {"three": "3"}
+    assert blob.get_path("one") == {"two": {"three": "3"}}
+
 
 def test_formatter():
     obj = Formatter()
