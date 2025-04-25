@@ -148,14 +148,13 @@ class CfgConfig(configparser.ConfigParser):
         else:
             raise NotImplementedError()
 
-
     @classmethod
     def from_dir(cls, path_str):
         assert os.path.exists(path_str), path_str
         assert os.path.isdir(path_str), path_str
-        config_paths = os.listdir(path_str)
+        config_paths = (f"{path_str}/{p}" for p in os.listdir(path_str))
         self = cls()
-        cls.read(config_paths)
+        self.read(config_paths)
         return self
 
     @classmethod
@@ -343,7 +342,7 @@ if __name__ == "__main__":
     exit(main())
 
 import pytest
-import io
+import time
 
 def test_blob_paths():
     blob = Blob({"zero": {"one": 1}})
@@ -359,39 +358,90 @@ def test_cfg_file_to_blob():
     contents = """
     [DEFAULT]
     [one]
+    won: 1
     [one.two]
     three: 3
     """
     with tempfile.NamedTemporaryFile("w") as config_file:
         config_file.write(contents)
         config_file.flush()
-        config = CfgConfig.from_file(config_file.name)
+        config = CfgConfig.from_path(config_file.name)
     blob = config.to_blob()
+    assert blob == {"one": {"won": "1", "two": {"three": "3"}}}
+    assert blob.get_path("one.two.three") == "3"
+    assert blob.get_path("one.two") == {"three": "3"}
+    assert blob.get_path("one") == {"won": "1", "two": {"three": "3"}}
+
+def test_cfg_dir_to_blob():
+    contents = """
+    [DEFAULT]
+    [one]
+    won: 1
+    [one.two]
+    three: 3
+    """
+    with tempfile.TemporaryDirectory() as config_dir:
+        with open(f"{config_dir}/x.cfg", "w") as config_file:
+            config_file.write(contents)
+        config = CfgConfig.from_path(config_file.name)
+    blob = config.to_blob()
+    assert blob == {"one": {"won": "1", "two": {"three": "3"}}}
+    assert blob.get_path("one.two.three") == "3"
+    assert blob.get_path("one.two") == {"three": "3"}
+    assert blob.get_path("one") == {"won": "1", "two": {"three": "3"}}
+
+def test_cfg_dir_x_to_blob():
+    contents_x = """
+    [DEFAULT]
+    [one]
+    won: 1
+    """
+    with tempfile.TemporaryDirectory() as config_dir:
+        with open(f"{config_dir}/x.cfg", "w") as config_x:
+            config_x.write(contents_x)
+        config = CfgConfig.from_path(config_dir)
+    blob = config.to_blob()
+    assert blob == {"one": {"won": "1"}}
+    assert blob.get_path("one.won") == "1"
+    assert blob.get_path("one") == {"won": "1"}
+
+def test_cfg_dir_y_to_blob():
+    contents_y = """
+    [one.two]
+    three: 3
+    """
+    with tempfile.TemporaryDirectory() as config_dir:
+        with open(f"{config_dir}/y.cfg", "w") as config_y:
+            config_y.write(contents_y)
+        config = CfgConfig.from_dir(config_dir)
+    blob = config.to_blob()
+    assert blob == {"one": {"two": {"three": "3"}}}
     assert blob.get_path("one.two.three") == "3"
     assert blob.get_path("one.two") == {"three": "3"}
     assert blob.get_path("one") == {"two": {"three": "3"}}
 
-def test_cfg_dir_to_blob():
+def test_cfg_dir_xy_to_blob():
     contents_x = """
     [DEFAULT]
     [one]
-    ONE: 1
+    won: 1
     """
     contents_y = """
     [one.two]
     three: 3
     """
     with tempfile.TemporaryDirectory() as config_dir:
-        with open(f"{config_dir}/x.cfg", "w") as config_file:
-            config_file.write(contents_x)
-        with open(f"{config_dir}/y.cfg", "w") as config_file:
-            config_file.write(contents_y)
-        config = CfgConfig.from_file(config_file.name)
+        with open(f"{config_dir}/x.cfg", "w") as config_x:
+            config_x.write(contents_x)
+        with open(f"{config_dir}/y.cfg", "w") as config_y:
+            config_y.write(contents_y)
+        config = CfgConfig.from_dir(config_dir)
+    assert config.sections()
     blob = config.to_blob()
+    assert blob == {"one": {"won": "1", "two": {"three": "3"}}}
     assert blob.get_path("one.two.three") == "3"
     assert blob.get_path("one.two") == {"three": "3"}
-    assert blob.get_path("one") == {"two": {"three": "3"}}
-
+    assert blob.get_path("one") == {"won": "1", "two": {"three": "3"}}
 
 def test_formatter():
     obj = Formatter()
