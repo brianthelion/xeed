@@ -342,7 +342,6 @@ if __name__ == "__main__":
     exit(main())
 
 import pytest
-import time
 
 def test_blob_paths():
     blob = Blob({"zero": {"one": 1}})
