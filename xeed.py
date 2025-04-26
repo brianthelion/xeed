@@ -149,13 +149,30 @@ class CfgConfig(configparser.ConfigParser):
     @classmethod
     def from_path(cls, path_str):
         LOG.debug(f"Loading config {path_str}")
-        with open(path_str, "r") as afile:
-            return cls.from_file(afile)
+        if not os.path.exists(path_str):
+            exit(f"Config path {path_str} does not exist!")
+        elif os.path.isfile(path_str):
+            return cls.from_file(path_str)
+        elif os.path.isdir(path_str):
+            return cls.from_dir(path_str)
+        else:
+            raise NotImplementedError()
 
     @classmethod
-    def from_file(cls, filelike):
+    def from_dir(cls, path_str):
+        assert os.path.exists(path_str), path_str
+        assert os.path.isdir(path_str), path_str
+        config_paths = (f"{path_str}/{p}" for p in os.listdir(path_str))
         self = cls()
-        self.read_file(filelike)
+        self.read(config_paths)
+        return self
+
+    @classmethod
+    def from_file(cls, path_str):
+        assert os.path.exists(path_str), path_str
+        assert os.path.isfile(path_str), path_str
+        self = cls()
+        self.read(path_str)
         return self
 
     def to_blob(self):
@@ -340,7 +357,6 @@ if __name__ == "__main__":
     exit(main())
 
 import pytest
-import io
 
 def test_blob_paths():
     blob = Blob({"zero": {"one": 1}})
@@ -352,18 +368,94 @@ def test_blob_paths():
     blob = Blob({"zero": {"one": 1, "two": {"three": 3}}})
     assert blob.get_path("zero.one") == 1
 
-def test_cfg_to_blob():
-    filelike = io.StringIO("""
+def test_cfg_file_to_blob():
+    contents = """
     [DEFAULT]
     [one]
+    won: 1
     [one.two]
     three: 3
-    """)
-    config = CfgConfig.from_file(filelike)
+    """
+    with tempfile.NamedTemporaryFile("w") as config_file:
+        config_file.write(contents)
+        config_file.flush()
+        config = CfgConfig.from_path(config_file.name)
     blob = config.to_blob()
+    assert blob == {"one": {"won": "1", "two": {"three": "3"}}}
+    assert blob.get_path("one.two.three") == "3"
+    assert blob.get_path("one.two") == {"three": "3"}
+    assert blob.get_path("one") == {"won": "1", "two": {"three": "3"}}
+
+def test_cfg_dir_to_blob():
+    contents = """
+    [DEFAULT]
+    [one]
+    won: 1
+    [one.two]
+    three: 3
+    """
+    with tempfile.TemporaryDirectory() as config_dir:
+        with open(f"{config_dir}/x.cfg", "w") as config_file:
+            config_file.write(contents)
+        config = CfgConfig.from_path(config_file.name)
+    blob = config.to_blob()
+    assert blob == {"one": {"won": "1", "two": {"three": "3"}}}
+    assert blob.get_path("one.two.three") == "3"
+    assert blob.get_path("one.two") == {"three": "3"}
+    assert blob.get_path("one") == {"won": "1", "two": {"three": "3"}}
+
+def test_cfg_dir_x_to_blob():
+    contents_x = """
+    [DEFAULT]
+    [one]
+    won: 1
+    """
+    with tempfile.TemporaryDirectory() as config_dir:
+        with open(f"{config_dir}/x.cfg", "w") as config_x:
+            config_x.write(contents_x)
+        config = CfgConfig.from_path(config_dir)
+    blob = config.to_blob()
+    assert blob == {"one": {"won": "1"}}
+    assert blob.get_path("one.won") == "1"
+    assert blob.get_path("one") == {"won": "1"}
+
+def test_cfg_dir_y_to_blob():
+    contents_y = """
+    [one.two]
+    three: 3
+    """
+    with tempfile.TemporaryDirectory() as config_dir:
+        with open(f"{config_dir}/y.cfg", "w") as config_y:
+            config_y.write(contents_y)
+        config = CfgConfig.from_dir(config_dir)
+    blob = config.to_blob()
+    assert blob == {"one": {"two": {"three": "3"}}}
     assert blob.get_path("one.two.three") == "3"
     assert blob.get_path("one.two") == {"three": "3"}
     assert blob.get_path("one") == {"two": {"three": "3"}}
+
+def test_cfg_dir_xy_to_blob():
+    contents_x = """
+    [DEFAULT]
+    [one]
+    won: 1
+    """
+    contents_y = """
+    [one.two]
+    three: 3
+    """
+    with tempfile.TemporaryDirectory() as config_dir:
+        with open(f"{config_dir}/x.cfg", "w") as config_x:
+            config_x.write(contents_x)
+        with open(f"{config_dir}/y.cfg", "w") as config_y:
+            config_y.write(contents_y)
+        config = CfgConfig.from_dir(config_dir)
+    assert config.sections()
+    blob = config.to_blob()
+    assert blob == {"one": {"won": "1", "two": {"three": "3"}}}
+    assert blob.get_path("one.two.three") == "3"
+    assert blob.get_path("one.two") == {"three": "3"}
+    assert blob.get_path("one") == {"won": "1", "two": {"three": "3"}}
 
 def test_formatter():
     obj = Formatter()
