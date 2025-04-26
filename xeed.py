@@ -36,7 +36,7 @@ class StrJoin(argparse.Action):
 
 class Cli:
     OPTIONS = {
-        "--config": "xeed.cfg",
+        "--config": "xeed.d",
         "--log-level": "ERROR",
     }
 
