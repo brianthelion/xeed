@@ -42,7 +42,7 @@ class Cli:
 
     @classmethod
     def empty(cls):
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(add_help=False)
         for k, v in cls.OPTIONS.items():
             parser.add_argument(k, default=v)
         return cls(parser)
@@ -66,6 +66,11 @@ class Cli:
     def to_dict(self):
         return vars(self._ns)
 
+    def print_help(self, new_hash, file=None):
+        self._parser.print_help(file=file)
+        print(file=file)
+        print(f"Current xeed hash: {new_hash}", file=file)
+
     @functools.cached_property
     def config_path(self):
         return self._ns.config
@@ -87,12 +92,17 @@ class Cli:
 
     def extend(self, subcmd, cmdstr):
         LOG.debug(f"{subcmd} {cmdstr}")
-        parser = self._subparsers.add_parser(subcmd)
+        parser = self._subparsers.add_parser(subcmd, add_help=False)
         parser.set_defaults(cmdstr=cmdstr)
         parser.add_argument("extra_args",
                             nargs=argparse.REMAINDER,
                             action=StrJoin,
                             )
+
+    def check(self, sub):
+        return self._ns is not None \
+            and self._ns.sub == sub
+
 
 class Blob(dict):
     DELIM = "."
@@ -310,7 +320,12 @@ def main():
         cli.extend(tool_name,
                    cmdstr=blob.get_path(f"{path}.cmdstr"))
 
+    cli.extend("help", cmdstr=None)
     cli.parse(final=True)
+    if cli.check("help"):
+        cli.print_help(cache.new_hash)
+        return 0
+
     blob.update(cli=cli.to_dict(),
                 env=ENV,
                 xeed=dict(PATH=PATH, HASH=cache.new_hash, PREFIX=cli.prefix),
@@ -375,3 +390,16 @@ def test_reresolving_formatter():
     assert obj.format("This is {a.b.c}", X) == "This is 0"
     assert obj.format("This is {a.b.d}", X) == "This is 0"
     assert obj.format("This is {a.b.e}", X) == "This is 1"
+
+@pytest.fixture
+def mock_argv():
+    original_argv = sys.argv
+    mock = []
+    sys.argv = mock
+    yield mock
+    sys.argv = original_argv
+
+def test_cli_args_help(mock_argv):
+    mock_argv.extend(["./xeed.py", "help"])
+    assert main() == 0
+
