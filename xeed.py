@@ -27,8 +27,29 @@ USER["UID"] = os.getuid()
 USER["GID"] = os.getgid()
 USER["NAME"] = getpass.getuser()
 
+
 def exit(*args, **kwargs):
     return sys.exit(*args, **kwargs)
+
+def log(level=logging.DEBUG):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Log the function call with its arguments
+            LOG.log(level, "Calling %s(args=%r, kwargs=%r)", func.__name__, args, kwargs)
+            try:
+                # Execute the original function
+                result = func(*args, **kwargs)
+                # Log the return value
+                LOG.log(level, "%s returned %r", func.__name__, result)
+                return result
+            except Exception as e:
+                # Exceptions are always logged at ERROR level with a traceback
+                LOG.exception("Exception in %s: %s", func.__name__, e)
+                # Re-raise the exception
+                raise
+        return wrapper
+    return decorator
 
 class StrJoin(argparse.Action):
     def __call__(self, parser, namespace, values, *_):
@@ -282,31 +303,13 @@ class HashedCache(CacheBase):
     EMPTY_HASH = ""
 
     @property
-    def hash_path(self):
-        hash_file = self.config_blob.get_path("DEFAULT.hashfile")
-        return os.path.join(self.cache_dir, hash_file)
-
-    @property
-    def new_hash(self):
+    @log(level=logging.INFO)
+    def blob_hash(self):
         with tempfile.NamedTemporaryFile("w") as tmp:
             blob_str = json.dumps(self.config_blob, sort_keys=True)
             tmp.write(blob_str)
             tmp.flush()
             return self.compute_hash(tmp.name)
-
-    @property
-    def old_hash(self):
-        if not os.path.exists(self.hash_path):
-            return self.EMPTY_HASH
-        return self.read_hash()
-
-    def read_hash(self):
-        with open(self.hash_path, "r") as hash_file:
-            return hash_file.read().strip()
-
-    def write_hash(self, new_hash):
-        with open(self.hash_path, "w") as hash_file:
-            hash_file.write(new_hash)
 
     @classmethod
     def compute_hash(cls, path):
@@ -317,8 +320,32 @@ class HashedCache(CacheBase):
         hash_str = hash_obj.hexdigest()
         return hash_str[:cls.HASH_SIZE]
 
+class SmartCache(HashedCache):
 
-class XeedCache(FileCache):
+    @property
+    def hash_path(self):
+        return self.config_blob.get_path("DEFAULT.hashfile")
+
+    @property
+    def hash_fullpath(self):
+        return os.path.join(self.cache_dir, hash_file)
+
+    @property
+    @log(level=logging.INFO)
+    def disk_hash(self):
+        if not os.path.exists(self.hash_fullpath):
+            return self.EMPTY_HASH
+        return self.read_hash()
+
+    def read_hash(self):
+        with open(self.hash_fullpath, "r") as hash_file:
+            return hash_file.read().strip()
+
+    def write_hash(self, blob_hash):
+        with open(self.hash_fullpath, "w") as hash_file:
+            hash_file.write(blob_hash)
+
+class XeedCache(HashedCache, FileCache):
     pass
 
 FORMATTER = ReResolvingFormatter(lambda x, y: x.get_path(y))
@@ -355,12 +382,12 @@ def main():
     cli.extend("help", cmdstr=None)
     cli.parse(final=True)
     if cli.check("help"):
-    #     cli.print_help(cache.new_hash)
+    #     cli.print_help(cache.blob_hash)
         return 0
 
     blob.update(cli=cli.to_dict(),
                 env=ENV,
-                xeed=dict(PATH=PATH, HASH="xxxxxx", PREFIX=cli.prefix),
+                xeed=dict(PATH=PATH, HASH=cache.blob_hash, PREFIX=cli.prefix),
                 user=USER)
     cache.write()
 
@@ -497,6 +524,43 @@ def test_reresolving_formatter():
     assert obj.format("This is {a.b.c}", X) == "This is 0"
     assert obj.format("This is {a.b.d}", X) == "This is 0"
     assert obj.format("This is {a.b.e}", X) == "This is 1"
+
+def test_hashed_cache():
+    blob = BLOB_CLS.empty()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        blob.set_path("DEFAULT.hashfile", f"{tmpdir}/hash")
+        blob.set_path("DEFAULT.cachedir", f"{tmpdir}/cache")
+        cache = HashedCache.from_blob(blob)
+
+        hash_1 = cache.blob_hash
+        hash_2 = cache.blob_hash
+        assert hash_1 == hash_2
+
+        blob.set_path("a.b.c", 1)
+        hash_3 = cache.blob_hash
+        assert hash_3 != hash_2
+
+        # old_hash = cache.old_hash
+        # new_hash = cache.new_hash
+        # # tmp_hash = cache.new_hash
+        # assert old_hash == CACHE_CLS.EMPTY_HASH
+        # assert old_hash == cache.old_hash
+        # # assert new_hash != old_hash
+        # # assert tmp_hash == new_hash
+        # assert new_hash == cache.new_hash
+        # assert new_hash != old_hash
+        # cache.update()
+        # old_hash = cache.old_hash
+        # new_hash = cache.new_hash
+        # assert old_hash == new_hash
+        # assert new_hash == tmp_hash
+        # tmp_hash = new_hash
+        # blob.set_path("a.b.c", 1)
+        # old_hash = cache.old_hash
+        # new_hash = cache.new_hash
+        # assert old_hash != new_hash
+        # assert old_hash == tmp_hash
+        # cache.update()
 
 @pytest.fixture
 def mock_argv():
