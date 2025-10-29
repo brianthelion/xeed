@@ -144,7 +144,7 @@ class Blob(dict):
         return cls.from_dict({})
 
 class CfgConfig(configparser.ConfigParser):
-    BLOB_CLS = Blob
+    BLOB_CLS = None
 
     @classmethod
     def from_path(cls, path_str):
@@ -222,33 +222,64 @@ class ReResolvingFormatter(ResolvingFormatter):
             return val
         return self.format(val, namespace)
 
-class CacheManager:
-    READ_SIZE = 8192
-    HASH_SIZE = 8
-    HASH_CLS = hashlib.sha256
-    CONFIG_CLS = CfgConfig
-    EMPTY_HASH = ""
-
+class CacheBase:
+    CONFIG_CLS = None
     def __init__(self, config_blob):
         self._config_blob = config_blob
-
-    @classmethod
-    def compute_hash(cls, path):
-        hash_obj = cls.HASH_CLS()
-        with open(path, 'rb') as f:
-            while chunk := f.read(cls.READ_SIZE):
-                hash_obj.update(chunk)
-        hash_str = hash_obj.hexdigest()
-        return hash_str[:cls.HASH_SIZE]
 
     @property
     def config_blob(self):
         return self._config_blob
 
+    def write(self):
+        raise NotImplementedError()
+
+    @classmethod
+    def from_path(cls, config_path):
+        raise NotImplementedError()
+
+    @classmethod
+    def from_blob(cls, config_blob):
+        return cls(config_blob)
+
+
+class FileCache(CacheBase):
+
     @property
     def cache_dir(self):
-        return self.config_blob \
-                   .get_path("DEFAULT.cachedir")
+        return self.config_blob.get_path("DEFAULT.cachedir")
+
+    @property
+    def files(self):
+        for section_name in self.config_blob.get("file", {}).keys():
+            yield self.config_blob.get_path(f"file.{section_name}")
+
+    def write(self):
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
+        # config_blob = self.config_blob
+        # for section_name in config_blob.get("file", {}).keys():
+        #     self._write_one(section_name, config_blob)
+        for file_blob in self.files:
+            self._write_one(file_blob, self.config_blob)
+
+    @classmethod
+    def _write_one(cls, file_blob, config_blob):
+        file_path = file_blob.get_path("path")
+        file_path = cls.FORMATTER.format(file_path, config_blob)
+        file_dir = os.path.dirname(file_path)
+        if not os.path.exists(file_dir):
+            os.makedirs(file_dir)
+        file_contents = file_blob.get_path("contents")
+        file_contents = cls.FORMATTER.format(file_contents, config_blob)
+        with open(file_path, "w") as open_file:
+            open_file.write(file_contents)
+
+class HashedCache(CacheBase):
+    READ_SIZE = 8192
+    HASH_SIZE = 8
+    HASH_CLS = hashlib.sha256
+    EMPTY_HASH = ""
 
     @property
     def hash_path(self):
@@ -269,24 +300,6 @@ class CacheManager:
             return self.EMPTY_HASH
         return self.read_hash()
 
-    def write_cache(self):
-        if not os.path.exists(self.cache_dir):
-            os.makedirs(self.cache_dir)
-        config_blob = self.config_blob
-        for section_name in config_blob.get("file", {}).keys():
-            self._write_one(section_name, config_blob)
-
-    def _write_one(self, blob_name, config_blob):
-        file_path = config_blob.get_path(f"file.{blob_name}.path")
-        file_path = FORMATTER.format(file_path, config_blob)
-        file_dir = os.path.dirname(file_path)
-        if not os.path.exists(file_dir):
-            os.makedirs(file_dir)
-        file_contents = config_blob.get_path(f"file.{blob_name}.contents")
-        file_contents = FORMATTER.format(file_contents, config_blob)
-        with open(file_path, "w") as open_file:
-            open_file.write(file_contents)
-
     def read_hash(self):
         with open(self.hash_path, "r") as hash_file:
             return hash_file.read().strip()
@@ -295,28 +308,30 @@ class CacheManager:
         with open(self.hash_path, "w") as hash_file:
             hash_file.write(new_hash)
 
-    def update(self):
-        if self.new_hash == self.old_hash:
-            return False
-        self.write_cache()
-        self.write_hash(self.new_hash)
-        return True
-
     @classmethod
-    def from_path(cls, config_path):
-        raise NotImplementedError()
+    def compute_hash(cls, path):
+        hash_obj = cls.HASH_CLS()
+        with open(path, 'rb') as f:
+            while chunk := f.read(cls.READ_SIZE):
+                hash_obj.update(chunk)
+        hash_str = hash_obj.hexdigest()
+        return hash_str[:cls.HASH_SIZE]
 
-    @classmethod
-    def from_blob(cls, config_blob):
-        return cls(config_blob)
 
+class XeedCache(FileCache):
+    pass
 
 FORMATTER = ReResolvingFormatter(lambda x, y: x.get_path(y))
+BLOB_CLS = Blob
 CONFIG_CLS = CfgConfig
+CONFIG_CLS.BLOB_CLS = BLOB_CLS
+CACHE_CLS = XeedCache
+CACHE_CLS.FORMATTER = FORMATTER
+CLI_CLS = Cli
 
 def main():
 
-    cli = Cli.empty()
+    cli = CLI_CLS.empty()
     cli.parse(final=False)
     logging.basicConfig(level=cli.log_level)
 
@@ -327,7 +342,7 @@ def main():
     except FileNotFoundError as err:
         exit(str(err))
 
-    cache = CacheManager.from_blob(blob)
+    cache = CACHE_CLS.from_blob(blob)
 
     if blob.get("tool", None) is None:
         exit(f"Config {cli.config_path} must have at least one [tool.mytool] section!")
@@ -340,14 +355,14 @@ def main():
     cli.extend("help", cmdstr=None)
     cli.parse(final=True)
     if cli.check("help"):
-        cli.print_help(cache.new_hash)
+    #     cli.print_help(cache.new_hash)
         return 0
 
     blob.update(cli=cli.to_dict(),
                 env=ENV,
-                xeed=dict(PATH=PATH, HASH=cache.new_hash, PREFIX=cli.prefix),
+                xeed=dict(PATH=PATH, HASH="xxxxxx", PREFIX=cli.prefix),
                 user=USER)
-    cache.update()
+    cache.write()
 
     cmdstr = FORMATTER.format(blob.get_path(f"cli.cmdstr"), blob)
     LOG.info(cmdstr)
@@ -359,13 +374,13 @@ if __name__ == "__main__":
 import pytest
 
 def test_blob_paths():
-    blob = Blob({"zero": {"one": 1}})
+    blob = BLOB_CLS({"zero": {"one": 1}})
     assert blob.get_path("zero.one") == 1
 
-    blob = Blob({"zero": {"one": 1, "two": 2}})
+    blob = BLOB_CLS({"zero": {"one": 1, "two": 2}})
     assert blob.get_path("zero.one") == 1
 
-    blob = Blob({"zero": {"one": 1, "two": {"three": 3}}})
+    blob = BLOB_CLS({"zero": {"one": 1, "two": {"three": 3}}})
     assert blob.get_path("zero.one") == 1
 
 def test_cfg_file_to_blob():
@@ -379,7 +394,7 @@ def test_cfg_file_to_blob():
     with tempfile.NamedTemporaryFile("w") as config_file:
         config_file.write(contents)
         config_file.flush()
-        config = CfgConfig.from_path(config_file.name)
+        config = CONFIG_CLS.from_path(config_file.name)
     blob = config.to_blob()
     assert blob == {"one": {"won": "1", "two": {"three": "3"}}}
     assert blob.get_path("one.two.three") == "3"
@@ -397,7 +412,7 @@ def test_cfg_dir_to_blob():
     with tempfile.TemporaryDirectory() as config_dir:
         with open(f"{config_dir}/x.cfg", "w") as config_file:
             config_file.write(contents)
-        config = CfgConfig.from_path(config_file.name)
+        config = CONFIG_CLS.from_path(config_file.name)
     blob = config.to_blob()
     assert blob == {"one": {"won": "1", "two": {"three": "3"}}}
     assert blob.get_path("one.two.three") == "3"
@@ -413,7 +428,7 @@ def test_cfg_dir_x_to_blob():
     with tempfile.TemporaryDirectory() as config_dir:
         with open(f"{config_dir}/x.cfg", "w") as config_x:
             config_x.write(contents_x)
-        config = CfgConfig.from_path(config_dir)
+        config = CONFIG_CLS.from_path(config_dir)
     blob = config.to_blob()
     assert blob == {"one": {"won": "1"}}
     assert blob.get_path("one.won") == "1"
@@ -427,7 +442,7 @@ def test_cfg_dir_y_to_blob():
     with tempfile.TemporaryDirectory() as config_dir:
         with open(f"{config_dir}/y.cfg", "w") as config_y:
             config_y.write(contents_y)
-        config = CfgConfig.from_dir(config_dir)
+        config = CONFIG_CLS.from_dir(config_dir)
     blob = config.to_blob()
     assert blob == {"one": {"two": {"three": "3"}}}
     assert blob.get_path("one.two.three") == "3"
@@ -449,7 +464,7 @@ def test_cfg_dir_xy_to_blob():
             config_x.write(contents_x)
         with open(f"{config_dir}/y.cfg", "w") as config_y:
             config_y.write(contents_y)
-        config = CfgConfig.from_dir(config_dir)
+        config = CONFIG_CLS.from_dir(config_dir)
     assert config.sections()
     blob = config.to_blob()
     assert blob == {"one": {"won": "1", "two": {"three": "3"}}}
@@ -463,13 +478,13 @@ def test_formatter():
     assert obj.format("This {--is-not=y}", y="not") == "This --is-not=not"
 
 def test_resolving_formatter():
-    X = Blob.from_dict({"a": {"b": {"c": 0}}})
+    X = BLOB_CLS.from_dict({"a": {"b": {"c": 0}}})
     resolver = lambda x, y: x.get_path(y)
     obj = ResolvingFormatter(resolver)
     assert obj.format("This is {a.b.c}", X) == "This is 0"
 
 def test_reresolving_formatter():
-    X = Blob.from_dict({
+    X = BLOB_CLS.from_dict({
         "a": {
             "bb": 1,
             "b": {
