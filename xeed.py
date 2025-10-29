@@ -358,18 +358,19 @@ CLI_CLS = Cli
 
 def main():
 
+    blob = BLOB_CLS.from_dict(dict(env=ENV, user=USER))
+    cache = CACHE_CLS.from_blob(blob)
+
     cli = CLI_CLS.empty()
     cli.parse(final=False)
     logging.basicConfig(level=cli.log_level)
 
     try:
-        blob = CONFIG_CLS \
-            .from_path(cli.config_path) \
-            .to_blob()
+        config = CONFIG_CLS.from_path(cli.config_path)
     except FileNotFoundError as err:
         exit(str(err))
 
-    cache = CACHE_CLS.from_blob(blob)
+    blob.update(config.to_blob())
 
     if blob.get("tool", None) is None:
         exit(f"Config {cli.config_path} must have at least one [tool.mytool] section!")
@@ -385,12 +386,10 @@ def main():
     #     cli.print_help(cache.blob_hash)
         return 0
 
-    blob.update(cli=cli.to_dict(),
-                env=ENV,
-                xeed=dict(PATH=PATH, HASH=cache.blob_hash, PREFIX=cli.prefix),
-                user=USER)
-    cache.write()
+    blob.update(xeed=dict(PATH=PATH, HASH=cache.blob_hash, PREFIX=cli.prefix))
+    blob.update(cli=cli.to_dict())
 
+    cache.write()
     cmdstr = FORMATTER.format(blob.get_path(f"cli.cmdstr"), blob)
     LOG.info(cmdstr)
     return subprocess.call(cmdstr, shell=True)
