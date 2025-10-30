@@ -62,6 +62,7 @@ class Cli:
         "--use-hash": None,
     }
     PREFIX_TEMPLATE = "{path} {--config=x} {--log-level=y} {--use-hash=z}"
+    FORMATTER = None
 
     @classmethod
     def empty(cls):
@@ -109,7 +110,7 @@ class Cli:
     @functools.cached_property
     def prefix(self):
         ns = self._ns
-        obj = Formatter()
+        obj = self.FORMATTER
         return obj.format(self.PREFIX_TEMPLATE,
                           path=PATH, x=ns.config, y=ns.log_level,
                           z=ns.use_hash)
@@ -372,6 +373,7 @@ CONFIG_CLS.BLOB_CLS = BLOB_CLS
 CACHE_CLS = XeedCache
 CACHE_CLS.FORMATTER = FORMATTER
 CLI_CLS = Cli
+CLI_CLS.FORMATTER = Formatter()
 
 def main():
 
@@ -384,21 +386,12 @@ def main():
     try:
         config = CONFIG_CLS.from_path(cli.config_path)
     except FileNotFoundError as err:
-        exit(str(err))
-
+        return str(err)
     blob.update(config.to_blob())
-
-    # if blob.get("tool", None) is None:
-    #     exit(f"Config {cli.config_path} must have at least one [tool.mytool] section!")
-
-    # for tool_name in blob.get("tool", {}).keys():
-    #     path = f"tool.{tool_name}"
-    #     cli.extend(tool_name,
-    #                cmdstr=blob.get_path(f"{path}.cmdstr"))
 
     toolchest = ToolChest.from_blob(blob)
     if not toolchest.tools:
-        exit(f"Config {cli.config_path} must have at least one [tool.mytool] section!")
+        return f"Config {cli.config_path} must have at least one [tool.mytool] section!"
 
     for tool_name, tool_blob in toolchest.tools.items():
         tool_cmd = tool_blob.get("cmd", None) or tool_name
