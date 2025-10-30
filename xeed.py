@@ -14,14 +14,20 @@ import hashlib
 import json
 import tempfile
 import getpass
+import glob
 
 assert sys.version_info >= (3, 10, 12)
 
 LOG = logging.getLogger(__name__)
 PATH = os.path.abspath(__file__)
+HERE = os.path.dirname(PATH)
+
+DEFAULT_CONFIG = "xeed.cfg"
+
 ENV = dict(os.environ)
 ENV["HOSTNAME"] = socket.gethostname()
 ENV["FQDN"] = socket.getfqdn()
+
 USER = dict()
 USER["UID"] = os.getuid()
 USER["GID"] = os.getgid()
@@ -51,13 +57,21 @@ def log(level=logging.DEBUG):
         return wrapper
     return decorator
 
+def find_file_dir(filename):
+    pattern = f"{HERE}/**/{filename}"
+    matches = glob.glob(pattern, recursive=True)
+    if not matches:
+        return None
+    nearest = min(matches, key=len)
+    return os.path.dirname(nearest)
+
 class StrJoin(argparse.Action):
     def __call__(self, parser, namespace, values, *_):
         setattr(namespace, self.dest, " ".join(values))
 
 class Cli:
     OPTIONS = {
-        "--config": "xeed.d",
+        "--config": find_file_dir(DEFAULT_CONFIG),
         "--log-level": "ERROR",
         "--use-hash": None,
     }
@@ -269,10 +283,11 @@ class CacheBase:
 
 
 class FileCache(CacheBase):
+    CACHE_KEY = "DEFAULT.cachedir"
 
     @property
     def cache_dir(self):
-        return self.config_blob.get_path("DEFAULT.cachedir")
+        return self.config_blob.get_path(self.CACHE_KEY)
 
     @property
     def files(self):
@@ -325,10 +340,11 @@ class HashedCache(CacheBase):
         return hash_str[:cls.HASH_SIZE]
 
 class SmartCache(HashedCache):
+    HASH_KEY = "DEFAULT.hashfile"
 
     @property
     def hash_path(self):
-        return self.config_blob.get_path("DEFAULT.hashfile")
+        return self.config_blob.get_path(self.HASH_KEY)
 
     @property
     def hash_fullpath(self):
@@ -381,6 +397,9 @@ def main():
 
     cli = CLI_CLS.empty()
     cli.parse(final=False)
+    if cli.config_path is None:
+        return f"Unable to locate config file '{DEFAULT_CONFIG}' under {PATH}!"
+
     logging.basicConfig(level=cli.log_level)
 
     try:
