@@ -59,7 +59,9 @@ class Cli:
     OPTIONS = {
         "--config": "xeed.d",
         "--log-level": "ERROR",
+        "--use-hash": None,
     }
+    PREFIX_TEMPLATE = "{path} {--config=x} {--log-level=y} {--use-hash=z}"
 
     @classmethod
     def empty(cls):
@@ -108,8 +110,9 @@ class Cli:
     def prefix(self):
         ns = self._ns
         obj = Formatter()
-        return obj.format("{path} {--config=x} {--log-level=y}",
-                          path=PATH, x=ns.config, y=ns.log_level)
+        return obj.format(self.PREFIX_TEMPLATE,
+                          path=PATH, x=ns.config, y=ns.log_level,
+                          z=ns.use_hash)
 
     def extend(self, subcmd, cmdstr):
         LOG.debug(f"{subcmd} {cmdstr}")
@@ -359,7 +362,6 @@ CLI_CLS = Cli
 def main():
 
     blob = BLOB_CLS.from_dict(dict(env=ENV, user=USER))
-    cache = CACHE_CLS.from_blob(blob)
 
     cli = CLI_CLS.empty()
     cli.parse(final=False)
@@ -386,6 +388,7 @@ def main():
     #     cli.print_help(cache.blob_hash)
         return 0
 
+    cache = CACHE_CLS.from_blob(blob)
     blob.update(xeed=dict(PATH=PATH, HASH=cache.blob_hash, PREFIX=cli.prefix))
     blob.update(cli=cli.to_dict())
 
