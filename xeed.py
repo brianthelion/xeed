@@ -154,8 +154,8 @@ class Blob(dict):
     def _join(cls, tokens):
         return cls.DELIM.join(tokens)
 
-    def get_path(self, dotted):
-        token, *remainder = self._split(dotted)
+    def get_path(self, dotted_path):
+        token, *remainder = self._split(dotted_path)
         LOG.debug(remainder)
         item = self[token]
         if len(remainder) == 0:
@@ -163,14 +163,26 @@ class Blob(dict):
         sub = self.__class__.from_dict(item)
         return sub.get_path(self._join(remainder))
 
-    def set_path(self, dotted, value):
-        token, *remainder = self._split(dotted)
+    def set_path(self, dotted_path, value):
+        token, *remainder = self._split(dotted_path)
         if len(remainder) == 0:
             return self.__setitem__(token, value)
         if token not in self:
             self[token] = self.__class__.from_dict({})
         path = self._join(remainder)
         return self[token].set_path(path, value)
+
+    def get_paths(self, prefix=None):
+        for key, value in self.items():
+            next_prefix = key if prefix is None else f"{prefix}.{key}"
+            yield next_prefix
+            if isinstance(value, dict):
+                blob = self.__class__.from_dict(value)
+                yield from blob.get_paths(prefix=next_prefix)
+
+    def set_paths(self, path_map):
+        for dotted_path, value in path_map.items():
+            self.set_path(dotted_path, value)
 
     @classmethod
     def from_dict(cls, adict):
@@ -440,11 +452,14 @@ import pytest
 def test_blob_paths():
     blob = BLOB_CLS({"zero": {"one": 1}})
     assert blob.get_path("zero.one") == 1
+    assert list(blob.get_paths()) == ["zero", "zero.one"]
 
     blob = BLOB_CLS({"zero": {"one": 1, "two": 2}})
     assert blob.get_path("zero.one") == 1
+    assert list(blob.get_paths()) == ["zero", "zero.one", "zero.two"]
 
     blob = BLOB_CLS({"zero": {"one": 1, "two": {"three": 3}}})
+    assert list(blob.get_paths()) == ["zero", "zero.one", "zero.two", "zero.two.three"]
     assert blob.get_path("zero.one") == 1
 
 def test_cfg_file_to_blob():
@@ -461,6 +476,7 @@ def test_cfg_file_to_blob():
         config = CONFIG_CLS.from_path(config_file.name)
     blob = config.to_blob()
     assert blob == {"one": {"won": "1", "two": {"three": "3"}}}
+    assert list(blob.get_paths()) == ["one", "one.won", "one.two", "one.two.three"]
     assert blob.get_path("one.two.three") == "3"
     assert blob.get_path("one.two") == {"three": "3"}
     assert blob.get_path("one") == {"won": "1", "two": {"three": "3"}}
