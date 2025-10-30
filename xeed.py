@@ -351,6 +351,20 @@ class SmartCache(HashedCache):
 class XeedCache(HashedCache, FileCache):
     pass
 
+class ToolChest:
+
+    def __init__(self, config_blob):
+        self._config_blob = config_blob
+
+    @property
+    def tools(self):
+        return self._config_blob.get("tool", {})
+
+    @classmethod
+    def from_blob(cls, config_blob):
+        return cls(config_blob)
+
+
 FORMATTER = ReResolvingFormatter(lambda x, y: x.get_path(y))
 BLOB_CLS = Blob
 CONFIG_CLS = CfgConfig
@@ -374,13 +388,22 @@ def main():
 
     blob.update(config.to_blob())
 
-    if blob.get("tool", None) is None:
+    # if blob.get("tool", None) is None:
+    #     exit(f"Config {cli.config_path} must have at least one [tool.mytool] section!")
+
+    # for tool_name in blob.get("tool", {}).keys():
+    #     path = f"tool.{tool_name}"
+    #     cli.extend(tool_name,
+    #                cmdstr=blob.get_path(f"{path}.cmdstr"))
+
+    toolchest = ToolChest.from_blob(blob)
+    if not toolchest.tools:
         exit(f"Config {cli.config_path} must have at least one [tool.mytool] section!")
 
-    for tool_name in blob.get("tool", {}).keys():
-        path = f"tool.{tool_name}"
-        cli.extend(tool_name,
-                   cmdstr=blob.get_path(f"{path}.cmdstr"))
+    for tool_name, tool_blob in toolchest.tools.items():
+        tool_cmd = tool_blob.get("cmd", None) or tool_name
+        tool_call = tool_blob.get("cmdstr")
+        cli.extend(tool_cmd, cmdstr=tool_call)
 
     cli.extend("help", cmdstr=None)
     cli.parse(final=True)
