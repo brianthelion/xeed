@@ -142,7 +142,6 @@ class Cli:
         return self._ns is not None \
             and self._ns.sub == sub
 
-
 class Blob(dict):
     DELIM = "."
 
@@ -157,11 +156,17 @@ class Blob(dict):
     def get_path(self, dotted_path):
         token, *remainder = self._split(dotted_path)
         LOG.debug(remainder)
-        item = self[token]
+        try:
+            item = self[token]
+        except KeyError:
+            raise KeyError(dotted_path)
         if len(remainder) == 0:
             return item
         sub = self.__class__.from_dict(item)
-        return sub.get_path(self._join(remainder))
+        try:
+            return sub.get_path(self._join(remainder))
+        except KeyError as err:
+            raise KeyError(dotted_path)
 
     def set_path(self, dotted_path, value):
         token, *remainder = self._split(dotted_path)
@@ -182,6 +187,13 @@ class Blob(dict):
 
     def set_paths(self, path_map):
         for dotted_path, value in path_map.items():
+            self.set_path(dotted_path, value)
+
+    def merge(self, other_blob):
+        for dotted_path in other_blob.get_paths():
+            value = other_blob.get_path(dotted_path)
+            if isinstance(value, dict):
+                continue
             self.set_path(dotted_path, value)
 
     @classmethod
@@ -405,7 +417,8 @@ CLI_CLS.FORMATTER = Formatter()
 
 def main():
 
-    blob = BLOB_CLS.from_dict(dict(env=ENV, user=USER))
+    blob = BLOB_CLS.empty()
+    blob.set_paths({"xeed.env": ENV, "xeed.user": USER})
 
     cli = CLI_CLS.empty()
     cli.parse(final=False)
@@ -418,7 +431,7 @@ def main():
         config = CONFIG_CLS.from_path(cli.config_path)
     except FileNotFoundError as err:
         return str(err)
-    blob.update(config.to_blob())
+    blob.merge(config.to_blob())
 
     toolchest = ToolChest.from_blob(blob)
     if not toolchest.tools:
@@ -436,11 +449,13 @@ def main():
         return 0
 
     cache = CACHE_CLS.from_blob(blob)
-    blob.update(xeed=dict(PATH=PATH, HASH=cache.blob_hash, PREFIX=cli.prefix))
-    blob.update(cli=cli.to_dict())
+    blob.set_paths({"xeed.PATH": PATH,
+                    "xeed.HASH": cache.blob_hash,
+                    "xeed.PREFIX": cli.prefix})
+    blob.set_path("xeed.cli", cli.to_dict())
 
     cache.write()
-    cmdstr = FORMATTER.format(blob.get_path(f"cli.cmdstr"), blob)
+    cmdstr = FORMATTER.format(blob.get_path(f"xeed.cli.cmdstr"), blob)
     LOG.info(cmdstr)
     return subprocess.call(cmdstr, shell=True)
 
