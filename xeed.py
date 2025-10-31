@@ -307,7 +307,7 @@ class CacheBase:
 
 
 class FileCache(CacheBase):
-    CACHE_KEY = "DEFAULT.cachedir"
+    CACHE_KEY = "xeed.cachedir"
 
     @property
     def cache_dir(self):
@@ -364,7 +364,7 @@ class HashedCache(CacheBase):
         return hash_str[:cls.HASH_SIZE]
 
 class SmartCache(HashedCache):
-    HASH_KEY = "DEFAULT.hashfile"
+    HASH_KEY = "xeed.hashfile"
 
     @property
     def hash_path(self):
