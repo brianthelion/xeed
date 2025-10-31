@@ -417,8 +417,10 @@ CLI_CLS.FORMATTER = Formatter()
 
 def main():
 
-    blob = BLOB_CLS.empty()
-    blob.set_paths({"xeed.env": ENV, "xeed.user": USER})
+    blob = BLOB_CLS.empty() # just a nested dictionary with some helper methods
+    blob.set_paths({"xeed.env": ENV,
+                    "xeed.user": USER,
+                    "xeed.PATH": PATH})
 
     cli = CLI_CLS.empty()
     cli.parse(final=False)
@@ -449,8 +451,7 @@ def main():
         return 0
 
     cache = CACHE_CLS.from_blob(blob)
-    blob.set_paths({"xeed.PATH": PATH,
-                    "xeed.HASH": cache.blob_hash,
+    blob.set_paths({"xeed.HASH": cache.blob_hash,
                     "xeed.PREFIX": cli.prefix})
     blob.set_path("xeed.cli", cli.to_dict())
 
