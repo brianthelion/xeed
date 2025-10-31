@@ -15,6 +15,8 @@ import json
 import tempfile
 import getpass
 import glob
+#import fnmatch
+import re
 
 assert sys.version_info >= (3, 10, 12)
 
@@ -64,6 +66,12 @@ def find_file_dir(filename):
         return None
     nearest = min(matches, key=len)
     return os.path.dirname(nearest)
+
+def as_dict(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return dict(func(*args, **kwargs))
+    return wrapper
 
 class StrJoin(argparse.Action):
     def __call__(self, parser, namespace, values, *_):
@@ -393,13 +401,20 @@ class XeedCache(HashedCache, FileCache):
     pass
 
 class ToolChest:
+    SEP = "."
+    CMD_REGEX = re.compile(r"xeed\.tools\.[a-zA-Z]+\.cmds\.[a-zA-Z/]+$")
 
     def __init__(self, config_blob):
         self._config_blob = config_blob
 
     @property
+    @as_dict
     def tools(self):
-        return self._config_blob.get("tool", {})
+        regex = self.CMD_REGEX
+        blob = self._config_blob
+        for key in blob.get_paths():
+            if regex.match(key):
+                yield key.split(self.SEP)[-1], blob.get_path(key)
 
     @classmethod
     def from_blob(cls, config_blob):
@@ -642,4 +657,3 @@ def mock_argv():
 def test_cli_args_help(mock_argv):
     mock_argv.extend(["./xeed.py", "help"])
     assert main() == 0
-
