@@ -336,9 +336,6 @@ class FileCache(CacheBase):
     def write(self):
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
-        # config_blob = self.config_blob
-        # for section_name in config_blob.get("file", {}).keys():
-        #     self._write_one(section_name, config_blob)
         for _, file_blob in self.files.items():
             self._write_one(file_blob, self.config_blob)
 
@@ -630,28 +627,6 @@ def test_hashed_cache():
         blob.set_path("a.b.c", 1)
         hash_3 = cache.blob_hash
         assert hash_3 != hash_2
-
-        # old_hash = cache.old_hash
-        # new_hash = cache.new_hash
-        # # tmp_hash = cache.new_hash
-        # assert old_hash == CACHE_CLS.EMPTY_HASH
-        # assert old_hash == cache.old_hash
-        # # assert new_hash != old_hash
-        # # assert tmp_hash == new_hash
-        # assert new_hash == cache.new_hash
-        # assert new_hash != old_hash
-        # cache.update()
-        # old_hash = cache.old_hash
-        # new_hash = cache.new_hash
-        # assert old_hash == new_hash
-        # assert new_hash == tmp_hash
-        # tmp_hash = new_hash
-        # blob.set_path("a.b.c", 1)
-        # old_hash = cache.old_hash
-        # new_hash = cache.new_hash
-        # assert old_hash != new_hash
-        # assert old_hash == tmp_hash
-        # cache.update()
 
 @pytest.fixture
 def mock_argv():
