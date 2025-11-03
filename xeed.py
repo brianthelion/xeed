@@ -316,15 +316,22 @@ class CacheBase:
 
 class FileCache(CacheBase):
     CACHE_KEY = "xeed.cachedir"
+    SEP = "."
+    FILE_REGEX = re.compile(r"xeed\.tools\.[a-zA-Z]+\.files\.[a-zA-Z/]+$")
 
     @property
     def cache_dir(self):
         return self.config_blob.get_path(self.CACHE_KEY)
 
     @property
+    @as_dict
     def files(self):
-        for section_name in self.config_blob.get("file", {}).keys():
-            yield self.config_blob.get_path(f"file.{section_name}")
+        regex = self.FILE_REGEX
+        blob = self._config_blob
+        for key in blob.get_paths():
+            if regex.match(key):
+                yield key.split(self.SEP)[-1], blob.get_path(key)
+
 
     def write(self):
         if not os.path.exists(self.cache_dir):
@@ -332,7 +339,7 @@ class FileCache(CacheBase):
         # config_blob = self.config_blob
         # for section_name in config_blob.get("file", {}).keys():
         #     self._write_one(section_name, config_blob)
-        for file_blob in self.files:
+        for _, file_blob in self.files.items():
             self._write_one(file_blob, self.config_blob)
 
     @classmethod
