@@ -477,7 +477,12 @@ def main():
     cache.write()
     cmdstr = FORMATTER.format(blob.get_path(f"xeed.cli.cmdstr"), blob)
     LOG.info(cmdstr)
-    return subprocess.call(cmdstr, shell=True)
+    return subprocess.call(cmdstr,
+                           shell=True,
+                           stdin=sys.stdin,
+                           stdout=sys.stdout,
+                           stderr=sys.stderr,
+                           )
 
 if __name__ == "__main__":
     exit(main())
