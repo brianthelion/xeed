@@ -17,6 +17,7 @@ import getpass
 import glob
 #import fnmatch
 import re
+import textwrap
 
 assert sys.version_info >= (3, 10, 12)
 
@@ -216,6 +217,7 @@ class Blob(dict):
 
 class CfgConfig(configparser.ConfigParser):
     BLOB_CLS = None
+    MULTILINE_SEP = "\n:"
 
     @classmethod
     def from_path(cls, path_str):
@@ -252,6 +254,36 @@ class CfgConfig(configparser.ConfigParser):
             for key, value in section_dict.items():
                 out.set_path(f"{section_name}.{key}", value)
         return out
+
+    def _read(self, fp, fpname):
+        retval = super()._read(fp, fpname)
+        self._postproc(self._sections)
+        self._postproc(self._defaults)
+        return retval
+
+    @classmethod
+    def _postproc(cls, section_dict):
+        for k, v in section_dict.items():
+            for kk, vv in v.items():
+                LOG.debug(f"BEFORE {v[kk]}")
+                v[kk] = cls._clean_multiline(vv)
+                LOG.debug(f"AFTER {v[kk]}")
+
+    @classmethod
+    def _clean_multiline(cls, value):
+        assert isinstance(value, str), f"ERROR: Found {value} of type {type(value)}"
+        LOG.debug(f"VALUE {value}")
+        sep = cls.MULTILINE_SEP
+        if sep not in value:
+            return value
+        return textwrap.dedent(value.replace(sep, "\n"))
+
+
+    # def get(self, *args, multiline=False, **kwargs):
+    #     value = super().get(*args, **kwargs)
+    #     if multiline:
+    #         value = value.replace(self.MULTILINE_SEP, )
+    #     return value
 
 class TomlConfig:
     pass
@@ -488,6 +520,8 @@ if __name__ == "__main__":
     exit(main())
 
 import pytest
+import io
+import textwrap
 
 def test_blob_paths():
     blob = BLOB_CLS({"zero": {"one": 1}})
@@ -644,3 +678,29 @@ def mock_argv():
 def test_cli_args_help(mock_argv):
     mock_argv.extend(["./xeed.py", "help"])
     assert main() == 0
+
+PARSER_CLASSES = [CfgConfig]
+
+@pytest.mark.parametrize("parser_cls", PARSER_CLASSES)
+def test_multiline_code_in_cfg(parser_cls):
+    mock_file_content = """
+[tool.test]
+code:
+    : class MyTestClass:
+    :     def run(self):
+    :         return "yay!"
+"""
+
+    with tempfile.NamedTemporaryFile("w", delete=False) as tmp:
+        tmp.write(mock_file_content)
+        tmp.flush()
+        config = parser_cls()
+        config.read(tmp.name)
+        raw_code = config.get('tool.test', 'code')
+        assert raw_code == '\nclass MyTestClass:\n    def run(self):\n        return "yay!"'
+        # clean_code = textwrap.dedent(raw_code)
+        scope = {}
+        # exec(clean_code, {}, scope)
+        exec(raw_code, {}, scope)
+        obj = scope['MyTestClass']()
+        assert obj.run() == "yay!"
