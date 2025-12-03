@@ -436,9 +436,13 @@ class SmartCache(HashedCache):
 class XeedCache(HashedCache, FileCache):
     pass
 
+class Tool:
+    pass
+
 class ToolChest:
     SEP = "."
     CMD_REGEX = re.compile(r"xeed\.tools\.[a-zA-Z]+\.cmds\.[a-zA-Z/]+$")
+    TYPES_REGEX = re.compile(r"xeed\.types\.tool\.subtypes\.[a-zA-Z/]+$")
 
     def __init__(self, config_blob):
         self._config_blob = config_blob
@@ -446,15 +450,47 @@ class ToolChest:
     @property
     @as_dict
     def tools(self):
-        regex = self.CMD_REGEX
         blob = self._config_blob
+        regex = self.CMD_REGEX
+        for key, blob in self._walk(blob, regex):
+            yield key.split(self.SEP)[-1], self._tool_factory(blob)
+
+    @property
+    @as_dict
+    def types(self):
+        for key, blob in self._types:
+            yield key, self._type_factory(blob["code"])
+
+    @property
+    def _tools(self):
+        blob = self._config_blob
+        regex = self.CMD_REGEX
+        yield from self._walk(blob, regex)
+
+    @property
+    def _types(self):
+        blob = self._config_blob
+        regex = self.TYPES_REGEX
+        yield from self._walk(blob, regex)
+
+    @staticmethod
+    def _walk(blob, regex):
         for key in blob.get_paths():
             if regex.match(key):
-                yield key.split(self.SEP)[-1], blob.get_path(key)
+                yield key, blob.get_path(key)
 
     @classmethod
     def from_blob(cls, config_blob):
         return cls(config_blob)
+
+    def _type_factory(self, code):
+        out = {}
+        exec(code, {"Tool": Tool}, out)
+        assert len(out) == 1, out
+        return next(iter(out.values()))
+
+    def _tool_factory(self, blob):
+        return blob
 
 
 FORMATTER = ReResolvingFormatter(lambda x, y: x.get_path(y))
@@ -684,9 +720,9 @@ PARSER_CLASSES = [CfgConfig]
 @pytest.mark.parametrize("parser_cls", PARSER_CLASSES)
 def test_multiline_code_in_cfg(parser_cls):
     mock_file_content = """
-[tool.test]
+[xeed.types.tool.subtypes.testtool]
 code:
-    : class MyTestClass:
+    : class MyTestClass(Tool):
     :     def run(self):
     :         return "yay!"
 """
@@ -696,11 +732,39 @@ code:
         tmp.flush()
         config = parser_cls()
         config.read(tmp.name)
-        raw_code = config.get('tool.test', 'code')
-        assert raw_code == '\nclass MyTestClass:\n    def run(self):\n        return "yay!"'
+        raw_code = config.get('xeed.types.tool.subtypes.testtool', 'code')
+        assert raw_code == '\nclass MyTestClass(Tool):\n    def run(self):\n        return "yay!"'
         # clean_code = textwrap.dedent(raw_code)
         scope = {}
         # exec(clean_code, {}, scope)
-        exec(raw_code, {}, scope)
+        exec(raw_code, {"Tool": Tool}, scope)
         obj = scope['MyTestClass']()
         assert obj.run() == "yay!"
+
+@pytest.mark.parametrize("parser_cls", PARSER_CLASSES)
+def test_toolchest(parser_cls):
+    mock_file_content = """
+[xeed.types.tool.subtypes.testtool]
+code:
+    : class MyTestClass(Tool):
+    :     def run(self):
+    :         return "yay!"
+
+[xeed.tools.foo.cmds.test]
+type: xeed.types.tool.subtypes.testtool
+"""
+
+    with tempfile.NamedTemporaryFile("w", delete=False) as tmp:
+        tmp.write(mock_file_content)
+        tmp.flush()
+        config = parser_cls()
+        config.read(tmp.name)
+        toolchest = ToolChest.from_blob(config.to_blob())
+        assert len(list(toolchest._types)) == 1
+        assert isinstance(toolchest.types, dict)
+        assert len(toolchest.types) == 1
+        ttype = toolchest.types['xeed.types.tool.subtypes.testtool']
+        assert issubclass(ttype, Tool)
+        assert len(list(toolchest._tools)) == 1
+        assert isinstance(toolchest.tools, dict)
+        assert len(list(toolchest.tools)) == 1
