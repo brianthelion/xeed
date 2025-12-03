@@ -119,6 +119,10 @@ class Cli:
         print(f"Current xeed hash: {new_hash}", file=file)
 
     @functools.cached_property
+    def vars(self):
+        return self._ns
+
+    @functools.cached_property
     def config_path(self):
         return self._ns.config
 
@@ -138,10 +142,10 @@ class Cli:
                           path=PATH, x=ns.config, y=ns.log_level,
                           z=ns.use_hash)
 
-    def extend(self, subcmd, cmdstr):
-        LOG.debug(f"{subcmd} {cmdstr}")
+    def extend(self, subcmd, **kwargs):
+        LOG.debug(f"{subcmd} {kwargs}")
         parser = self._subparsers.add_parser(subcmd, add_help=False)
-        parser.set_defaults(cmdstr=cmdstr)
+        parser.set_defaults(foo="bar", **kwargs)
         parser.add_argument("extra_args",
                             nargs=argparse.REMAINDER,
                             action=StrJoin,
@@ -437,7 +441,16 @@ class XeedCache(HashedCache, FileCache):
     pass
 
 class Tool:
-    pass
+    def __init__(self, blob):
+        self._config_blob = blob
+
+    @property
+    def cli(self):
+        return self._config_blob.get("cmd", None)
+
+    @classmethod
+    def from_blob(cls, blob):
+        return cls(blob)
 
 class ToolChest:
     SEP = "."
@@ -459,7 +472,7 @@ class ToolChest:
     @as_dict
     def types(self):
         for key, blob in self._types:
-            yield key, self._type_factory(blob["code"])
+            yield key, self._type_factory(blob)
 
     @property
     def _tools(self):
@@ -483,14 +496,19 @@ class ToolChest:
     def from_blob(cls, config_blob):
         return cls(config_blob)
 
-    def _type_factory(self, code):
+    def _type_factory(self, blob):
+        assert "code" in blob, blob
+        code = blob["code"]
         out = {}
-        exec(code, {"Tool": Tool}, out)
+        exec(code, {"Tool": Tool, "LOG": LOG}, out)
+        out = [v for v in out.values() if isinstance(v, type) and issubclass(v, Tool)]
         assert len(out) == 1, out
-        return next(iter(out.values()))
+        return out.pop()
 
     def _tool_factory(self, blob):
-        return blob
+        assert "type" in blob, blob
+        type_name = blob["type"]
+        return self.types[type_name].from_blob(blob)
 
 
 FORMATTER = ReResolvingFormatter(lambda x, y: x.get_path(y))
@@ -526,31 +544,39 @@ def main():
     if not toolchest.tools:
         return f"Config {cli.config_path} must have at least one [tool.mytool] section!"
 
-    for tool_name, tool_blob in toolchest.tools.items():
-        tool_cmd = tool_blob.get("cmd", None) or tool_name
-        tool_call = tool_blob.get("cmdstr")
-        cli.extend(tool_cmd, cmdstr=tool_call)
+    # for tool_name, tool_blob in toolchest.tools.items():
+    #     tool_cmd = tool_blob.get("cmd", None) or tool_name
+    #     tool_call = tool_blob.get("cmdstr")
+    #     cli.extend(tool_cmd, cmdstr=tool_call)
 
-    cli.extend("help", cmdstr=None)
+    # cli.extend("help", cmdstr=None)
+    # cli.parse(final=True)
+    # if cli.check("help"):
+    # #     cli.print_help(cache.blob_hash)
+    #     return 0
+
+    for tool_name, tool in toolchest.tools.items():
+        cmd = tool.cli or tool_name
+        cli.extend(cmd, tool=tool)
+
     cli.parse(final=True)
-    if cli.check("help"):
-    #     cli.print_help(cache.blob_hash)
-        return 0
-
     cache = CACHE_CLS.from_blob(blob)
     blob.set_paths({"xeed.HASH": cache.blob_hash,
                     "xeed.PREFIX": cli.prefix})
     blob.set_path("xeed.cli", cli.to_dict())
-
     cache.write()
-    cmdstr = FORMATTER.format(blob.get_path(f"xeed.cli.cmdstr"), blob)
-    LOG.info(cmdstr)
-    return subprocess.call(cmdstr,
-                           shell=True,
-                           stdin=sys.stdin,
-                           stdout=sys.stdout,
-                           stderr=sys.stderr,
-                           )
+
+    resolver = lambda x: FORMATTER.format(x, blob)
+    return cli.vars.tool.run(resolver=resolver)
+
+    # cmdstr = FORMATTER.format(blob.get_path(f"xeed.cli.cmdstr"), blob)
+    # LOG.info(cmdstr)
+    # return subprocess.call(cmdstr,
+    #                        shell=True,
+    #                        stdin=sys.stdin,
+    #                        stdout=sys.stdout,
+    #                        stderr=sys.stderr,
+    #                        )
 
 if __name__ == "__main__":
     exit(main())
@@ -711,8 +737,9 @@ def mock_argv():
     yield mock
     sys.argv = original_argv
 
-def test_cli_args_help(mock_argv):
-    mock_argv.extend(["./xeed.py", "help"])
+def test_cli_args_help(mock_argv, monkeypatch):
+    mock_argv.extend(["./xeed.py", "self/help"])
+    monkeypatch.setattr(sys, 'stdin', open(os.devnull))
     assert main() == 0
 
 PARSER_CLASSES = [CfgConfig]
@@ -738,7 +765,7 @@ code:
         scope = {}
         # exec(clean_code, {}, scope)
         exec(raw_code, {"Tool": Tool}, scope)
-        obj = scope['MyTestClass']()
+        obj = scope['MyTestClass'].from_blob({})
         assert obj.run() == "yay!"
 
 @pytest.mark.parametrize("parser_cls", PARSER_CLASSES)
@@ -748,7 +775,7 @@ def test_toolchest(parser_cls):
 code:
     : class MyTestClass(Tool):
     :     def run(self):
-    :         return "yay!"
+    :         return 0
 
 [xeed.tools.foo.cmds.test]
 type: xeed.types.tool.subtypes.testtool
@@ -763,8 +790,11 @@ type: xeed.types.tool.subtypes.testtool
         assert len(list(toolchest._types)) == 1
         assert isinstance(toolchest.types, dict)
         assert len(toolchest.types) == 1
+        assert 'xeed.types.tool.subtypes.testtool' in toolchest.types
         ttype = toolchest.types['xeed.types.tool.subtypes.testtool']
         assert issubclass(ttype, Tool)
         assert len(list(toolchest._tools)) == 1
         assert isinstance(toolchest.tools, dict)
         assert len(list(toolchest.tools)) == 1
+        assert 'test' in toolchest.tools
+        assert toolchest.tools["test"].run() == 0
