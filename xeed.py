@@ -282,13 +282,6 @@ class CfgConfig(configparser.ConfigParser):
             return value
         return textwrap.dedent(value.replace(sep, "\n"))
 
-
-    # def get(self, *args, multiline=False, **kwargs):
-    #     value = super().get(*args, **kwargs)
-    #     if multiline:
-    #         value = value.replace(self.MULTILINE_SEP, )
-    #     return value
-
 class TomlConfig:
     pass
 
@@ -544,17 +537,6 @@ def main():
     if not toolchest.tools:
         return f"Config {cli.config_path} must have at least one [tool.mytool] section!"
 
-    # for tool_name, tool_blob in toolchest.tools.items():
-    #     tool_cmd = tool_blob.get("cmd", None) or tool_name
-    #     tool_call = tool_blob.get("cmdstr")
-    #     cli.extend(tool_cmd, cmdstr=tool_call)
-
-    # cli.extend("help", cmdstr=None)
-    # cli.parse(final=True)
-    # if cli.check("help"):
-    # #     cli.print_help(cache.blob_hash)
-    #     return 0
-
     for tool_name, tool in toolchest.tools.items():
         cmd = tool.cli or tool_name
         cli.extend(cmd, tool=tool)
@@ -567,16 +549,7 @@ def main():
     cache.write()
 
     resolver = lambda x: FORMATTER.format(x, blob)
-    return cli.vars.tool.run(resolver=resolver)
-
-    # cmdstr = FORMATTER.format(blob.get_path(f"xeed.cli.cmdstr"), blob)
-    # LOG.info(cmdstr)
-    # return subprocess.call(cmdstr,
-    #                        shell=True,
-    #                        stdin=sys.stdin,
-    #                        stdout=sys.stdout,
-    #                        stderr=sys.stderr,
-    #                        )
+    return cli.vars.tool.run(**locals())
 
 if __name__ == "__main__":
     exit(main())
