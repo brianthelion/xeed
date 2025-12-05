@@ -154,7 +154,6 @@ class Cli:
     def check(self, sub):
         return self._ns is not None \
             and self._ns.sub == sub
-
 class Blob(dict):
     DELIM = "."
 
@@ -544,7 +543,7 @@ def main():
     cli.parse(final=True)
     cache = CACHE_CLS.from_blob(blob)
     blob.set_paths({"xeed.vars.HASH": cache.blob_hash,
-                    "xeed.vars.PREFIX": cli.prefix})
+                    "xeed.vars.XEED_CMD": cli.prefix})
     blob.set_path("xeed.vars.cli", cli.to_dict())
     cache.write()
 
