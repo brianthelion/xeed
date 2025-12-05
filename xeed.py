@@ -518,7 +518,7 @@ def main():
     blob = BLOB_CLS.empty() # just a nested dictionary with some helper methods
     blob.set_paths({"xeed.vars.env": ENV,
                     "xeed.vars.user": USER,
-                    "xeed.vars.PATH": PATH})
+                    "xeed.vars.XEED_EXE": PATH})
 
     cli = CLI_CLS.empty()
     cli.parse(final=False)
