@@ -344,7 +344,7 @@ class CacheBase:
 
 
 class FileCache(CacheBase):
-    CACHE_KEY = "xeed.cachedir"
+    CACHE_KEY = "xeed.vars.cachedir"
     SEP = "."
     FILE_REGEX = re.compile(r"xeed\.tools\.[a-zA-Z]+\.files\.[a-zA-Z/]+$")
 
@@ -516,9 +516,9 @@ CLI_CLS.FORMATTER = Formatter()
 def main():
 
     blob = BLOB_CLS.empty() # just a nested dictionary with some helper methods
-    blob.set_paths({"xeed.env": ENV,
-                    "xeed.user": USER,
-                    "xeed.PATH": PATH})
+    blob.set_paths({"xeed.vars.env": ENV,
+                    "xeed.vars.user": USER,
+                    "xeed.vars.PATH": PATH})
 
     cli = CLI_CLS.empty()
     cli.parse(final=False)
@@ -543,9 +543,9 @@ def main():
 
     cli.parse(final=True)
     cache = CACHE_CLS.from_blob(blob)
-    blob.set_paths({"xeed.HASH": cache.blob_hash,
-                    "xeed.PREFIX": cli.prefix})
-    blob.set_path("xeed.cli", cli.to_dict())
+    blob.set_paths({"xeed.vars.HASH": cache.blob_hash,
+                    "xeed.vars.PREFIX": cli.prefix})
+    blob.set_path("xeed.vars.cli", cli.to_dict())
     cache.write()
 
     resolver = lambda x: FORMATTER.format(x, blob)
@@ -690,8 +690,8 @@ def test_reresolving_formatter():
 def test_hashed_cache():
     blob = BLOB_CLS.empty()
     with tempfile.TemporaryDirectory() as tmpdir:
-        blob.set_path("DEFAULT.hashfile", f"{tmpdir}/hash")
-        blob.set_path("DEFAULT.cachedir", f"{tmpdir}/cache")
+        blob.set_path("xeed.vars.hashfile", f"{tmpdir}/hash")
+        blob.set_path("xeed.vars.cachedir", f"{tmpdir}/cache")
         cache = HashedCache.from_blob(blob)
 
         hash_1 = cache.blob_hash
