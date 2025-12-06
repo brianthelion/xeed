@@ -358,8 +358,7 @@ class FileCache(CacheBase):
         blob = self._config_blob
         for key in blob.get_paths():
             if regex.match(key):
-                yield key.split(self.SEP)[-1], blob.get_path(key)
-
+                yield key, blob.get_path(key)
 
     def write(self):
         if not os.path.exists(self.cache_dir):
@@ -377,6 +376,7 @@ class FileCache(CacheBase):
         file_contents = file_blob.get_path("contents")
         file_contents = cls.FORMATTER.format(file_contents, config_blob)
         with open(file_path, "w") as open_file:
+            LOG.debug(f"CACHED {open_file.name}")
             open_file.write(file_contents)
 
 class HashedCache(CacheBase):
