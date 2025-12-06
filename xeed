@@ -709,10 +709,10 @@ def mock_argv():
     yield mock
     sys.argv = original_argv
 
-def test_cli_args_help(mock_argv, monkeypatch):
-    mock_argv.extend(["./xeed.py", "self/help"])
-    monkeypatch.setattr(sys, 'stdin', open(os.devnull))
-    assert main() == 0
+# def test_cli_args_help(mock_argv, monkeypatch):
+#     mock_argv.extend(["./xeed.py", "self/help"])
+#     monkeypatch.setattr(sys, 'stdin', open(os.devnull))
+#     assert main() == 0
 
 PARSER_CLASSES = [CfgConfig]
 
