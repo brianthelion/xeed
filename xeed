@@ -145,8 +145,8 @@ class Cli:
     def extend(self, subcmd, **kwargs):
         LOG.debug(f"{subcmd} {kwargs}")
         parser = self._subparsers.add_parser(subcmd, add_help=False)
-        parser.set_defaults(foo="bar", **kwargs)
-        parser.add_argument("extra_args",
+        parser.set_defaults(**kwargs)
+        parser.add_argument("EXTRA_ARGS",
                             nargs=argparse.REMAINDER,
                             action=StrJoin,
                             )
@@ -221,6 +221,10 @@ class Blob(dict):
 class CfgConfig(configparser.ConfigParser):
     BLOB_CLS = None
     MULTILINE_SEP = "\n:"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.optionxform = str
 
     @classmethod
     def from_path(cls, path_str):
@@ -343,9 +347,9 @@ class CacheBase:
 
 
 class FileCache(CacheBase):
-    CACHE_KEY = "xeed.vars.cachedir"
+    CACHE_KEY = "xeed.vars.CACHE_DIR"
     SEP = "."
-    FILE_REGEX = re.compile(r"xeed\.tools\.[a-zA-Z]+\.files\.[a-zA-Z/]+$")
+    FILE_REGEX = re.compile(r"xeed\.tools\.[\w]+\.files\.[\w/]+$")
 
     @property
     def cache_dir(self):
@@ -433,8 +437,21 @@ class XeedCache(HashedCache, FileCache):
     pass
 
 class Tool:
+    DEPENDS_ON_KEY = "depends_on"
+    SUCCESS = 0
+
     def __init__(self, blob):
         self._config_blob = blob
+
+    def run(self, resolver, toolchest, **kwargs):
+        return self.run_dependencies(resolver, toolchest, **kwargs)
+
+    def run_dependencies(self, resolver, toolchest, **kwargs):
+        dependency_name = self._config_blob.get(self.DEPENDS_ON_KEY, None)
+        if dependency_name is None:
+            return 0
+        dependency_tool = toolchest.tools_long[dependency_name]
+        return dependency_tool.run(resolver, toolchest, **kwargs)
 
     @property
     def cli(self):
@@ -446,11 +463,19 @@ class Tool:
 
 class ToolChest:
     SEP = "."
-    CMD_REGEX = re.compile(r"xeed\.tools\.[a-zA-Z]+\.cmds\.[a-zA-Z/]+$")
-    TYPES_REGEX = re.compile(r"xeed\.types\.tool\.subtypes\.[a-zA-Z/]+$")
+    CMD_REGEX = re.compile(r"xeed\.tools\.[\w]+\.cmds\.[\w/]+$")
+    TYPES_REGEX = re.compile(r"xeed\.types\.tool\.subtypes\.[\w/]+$")
 
     def __init__(self, config_blob):
         self._config_blob = config_blob
+
+    @property
+    @as_dict
+    def tools_long(self):
+        blob = self._config_blob
+        regex = self.CMD_REGEX
+        for key, blob in self._walk(blob, regex):
+            yield key, self._tool_factory(blob)
 
     @property
     @as_dict
@@ -679,7 +704,8 @@ def test_reresolving_formatter():
                 "c": 0,
                 "d": "{a.b.c}",
                 "e": "{a.bb}"
-            }}})
+            }}
+    })
     resolver = lambda x, y: x.get_path(y)
     obj = ReResolvingFormatter(resolver)
     assert obj.format("This is {a.b.c}", X) == "This is 0"
