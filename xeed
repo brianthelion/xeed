@@ -31,8 +31,6 @@ DEFAULT_CONFIG = "xeed.cfg"
 XEED_ORIGIN_HASH = "$Format:%H$"
 XEED_ORIGIN_REPO = "https://github.com/brianthelion/xeed"
 BOOTSTRAP_FILES = ["xeed", "xeed.d/xeed.cfg", "xeed.d/self.cfg"]
-XEED_INSTALL_CFG = "xeed.d/__xeed__.cfg"
-XEED_INSTALL_SECTION = "xeed.install"
 
 def bootstrap(base_dir=None):
     if base_dir is None:
@@ -52,10 +50,6 @@ def bootstrap(base_dir=None):
         print(f"Bootstrapping {rel_path}...")
         urllib.request.urlretrieve(url, dest)
     os.chmod(os.path.join(base_dir, "xeed"), 0o755)
-    install_cfg = os.path.join(base_dir, XEED_INSTALL_CFG)
-    with open(install_cfg, "w") as f:
-        f.write(f"[{XEED_INSTALL_SECTION}]\n")
-        f.write(f"XEED_ORIGIN_HASH: {hash_}\n")
     print(f"Bootstrap complete. XEED_ORIGIN_HASH: {hash_}")
     return True
 
