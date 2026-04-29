@@ -39,7 +39,7 @@ def bootstrap(base_dir=None):
         base_dir = HERE
     hash_ = XEED_ORIGIN_HASH
     if hash_.startswith("$Format"):
-        return False
+        hash_ = "main"
     xeed_d = os.path.join(base_dir, "xeed.d")
     os.makedirs(xeed_d, exist_ok=True)
     raw_base = XEED_ORIGIN_REPO.replace(

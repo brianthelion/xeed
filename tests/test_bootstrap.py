@@ -35,11 +35,14 @@ def test_bootstrap_creates_files(xeed, tmp_path):
     assert (tmp_path / "xeed.d" / "self.cfg").exists()
     assert (tmp_path / "xeed.d" / "__xeed__.cfg").exists()
 
-def test_bootstrap_skips_unexpanded_hash(xeed, tmp_path):
+def test_bootstrap_unexpanded_hash_uses_main(xeed, tmp_path):
+    fetched = {}
     with patch.object(xeed, "XEED_ORIGIN_HASH", "$Format:%H$"):
-        result = xeed.bootstrap(base_dir=str(tmp_path))
-    assert result is False
-    assert not (tmp_path / "xeed.d").exists()
+        with patch("urllib.request.urlretrieve", _fake_urlretrieve(fetched)):
+            result = xeed.bootstrap(base_dir=str(tmp_path))
+    assert result is True
+    raw_base = "https://raw.githubusercontent.com/brianthelion/xeed"
+    assert any("main" in url for url in fetched)
 
 def test_bootstrap_fetches_correct_urls(xeed, tmp_path):
     fetched = {}
