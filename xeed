@@ -18,6 +18,7 @@ import glob
 #import fnmatch
 import re
 import textwrap
+import urllib.request
 
 assert sys.version_info >= (3, 10, 12)
 
@@ -26,6 +27,36 @@ PATH = os.path.abspath(__file__)
 HERE = os.path.dirname(PATH)
 
 DEFAULT_CONFIG = "xeed.cfg"
+
+XEED_ORIGIN_HASH = "$Format:%H$"
+XEED_ORIGIN_REPO = "https://github.com/brianthelion/xeed"
+BOOTSTRAP_FILES = ["xeed.d/xeed.cfg", "xeed.d/self.cfg"]
+XEED_INSTALL_CFG = "xeed.d/__xeed__.cfg"
+XEED_INSTALL_SECTION = "xeed.install"
+
+def bootstrap(base_dir=None):
+    if base_dir is None:
+        base_dir = HERE
+    hash_ = XEED_ORIGIN_HASH
+    if hash_.startswith("$Format"):
+        return False
+    xeed_d = os.path.join(base_dir, "xeed.d")
+    os.makedirs(xeed_d, exist_ok=True)
+    raw_base = XEED_ORIGIN_REPO.replace(
+        "https://github.com/",
+        "https://raw.githubusercontent.com/",
+    )
+    for rel_path in BOOTSTRAP_FILES:
+        url = f"{raw_base}/{hash_}/{rel_path}"
+        dest = os.path.join(base_dir, rel_path)
+        print(f"Bootstrapping {rel_path}...")
+        urllib.request.urlretrieve(url, dest)
+    install_cfg = os.path.join(base_dir, XEED_INSTALL_CFG)
+    with open(install_cfg, "w") as f:
+        f.write(f"[{XEED_INSTALL_SECTION}]\n")
+        f.write(f"XEED_ORIGIN_HASH: {hash_}\n")
+    print(f"Bootstrap complete. XEED_ORIGIN_HASH: {hash_}")
+    return True
 
 ENV = dict(os.environ)
 ENV["HOSTNAME"] = socket.gethostname()
@@ -546,6 +577,11 @@ def main():
 
     cli = CLI_CLS.empty()
     cli.parse(final=False)
+    if cli.config_path is None:
+        if bootstrap():
+            Cli.OPTIONS["--config"] = find_file_dir(DEFAULT_CONFIG)
+            cli = CLI_CLS.empty()
+            cli.parse(final=False)
     if cli.config_path is None:
         return f"Unable to locate config file '{DEFAULT_CONFIG}' under {PATH}!"
 

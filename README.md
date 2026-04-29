@@ -6,9 +6,13 @@ compact and extensible.
 
 # Quick start
 ```
-git clone https://github.com/brianthelion/xeed my-project && cd my-project
-nano xeed.cfg # Add a "tool.hello" section with "cmdstr: echo 'Hello world'"
-./xeed.py hello
+wget -qO- https://raw.githubusercontent.com/brianthelion/xeed/main/xeed | python3
+```
+
+This bootstraps `xeed` and its minimal config into the current directory. From there:
+```
+./xeed self/pull   # pull the latest canonical xeed
+./xeed self/help   # list available commands
 ```
 
 # Intro
