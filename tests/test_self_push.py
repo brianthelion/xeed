@@ -5,6 +5,7 @@ import io
 import json
 import os
 import sys
+import urllib.error
 import pytest
 from unittest.mock import patch
 
@@ -40,7 +41,7 @@ def fake_response(data, status=200):
     return resp
 
 
-def make_fake_urlopen(calls=None):
+def make_fake_urlopen(calls=None, branch_exists=False):
     if calls is None:
         calls = []
 
@@ -66,6 +67,8 @@ def make_fake_urlopen(calls=None):
 
         # POST create branch
         if "/git/refs" in url and method == "POST":
+            if branch_exists:
+                raise urllib.error.HTTPError(url, 422, "Reference already exists", {}, None)
             return fake_response({"ref": f"refs/heads/self/push-test"})
 
         # PUT update file
@@ -203,3 +206,16 @@ def test_push_custom_message(xeed, project_dir):
         run_cmd(xeed, project_dir, "self/push", "my-branch", "my custom message")
     put_bodies = [body for method, url, body in calls if method == "PUT"]
     assert put_bodies and all(b.get("message") == "my custom message" for b in put_bodies)
+
+def test_push_existing_branch_continues(xeed, project_dir):
+    (project_dir / "xeed.d" / "xeed.cfg").write_bytes(
+        ORIGIN_XEED_CFG() + b"# local change\n"
+    )
+    fake_urlopen, calls = make_fake_urlopen(branch_exists=True)
+    with patch("urllib.request.urlopen", fake_urlopen):
+        result = run_cmd(xeed, project_dir, "self/push", "my-branch", "my commit message")
+    assert result == 0 or result is None
+    put_urls = [url for method, url, _ in calls if method == "PUT"]
+    assert put_urls  # files were still pushed
+    pr_urls = [url for method, url, _ in calls if method == "POST" and "/pulls" in url]
+    assert pr_urls  # PR was still opened
