@@ -47,7 +47,8 @@ def make_fake_urlopen(calls=None):
     def fake_urlopen(request):
         url = request.full_url if hasattr(request, 'full_url') else request
         method = request.method if hasattr(request, 'method') else "GET"
-        calls.append((method, url))
+        body = json.loads(request.data) if request.data else None
+        calls.append((method, url, body))
 
         # GET HEAD sha
         if "/git/refs/heads/main" in url:
@@ -127,8 +128,28 @@ def test_push_no_changes_is_noop(xeed, project_dir):
     with patch("urllib.request.urlopen", fake_urlopen):
         result = run_cmd(xeed, project_dir, "self/push")
     assert result == 0 or result is None
-    methods = [method for method, _ in calls]
+    methods = [method for method, _, _ in calls]
     assert "POST" not in methods  # no branch created, no PR opened
+
+def test_push_missing_args_exits_with_error(xeed, project_dir):
+    (project_dir / "xeed.d" / "xeed.cfg").write_bytes(
+        ORIGIN_XEED_CFG() + b"# local change\n"
+    )
+    fake_urlopen, calls = make_fake_urlopen()
+    with patch("urllib.request.urlopen", fake_urlopen):
+        result = run_cmd(xeed, project_dir, "self/push")
+    assert result != 0
+    assert not any(method == "POST" for method, _, _ in calls)
+
+def test_push_missing_message_exits_with_error(xeed, project_dir):
+    (project_dir / "xeed.d" / "xeed.cfg").write_bytes(
+        ORIGIN_XEED_CFG() + b"# local change\n"
+    )
+    fake_urlopen, calls = make_fake_urlopen()
+    with patch("urllib.request.urlopen", fake_urlopen):
+        result = run_cmd(xeed, project_dir, "self/push", "my-branch")
+    assert result != 0
+    assert not any(method == "POST" for method, _, _ in calls)
 
 def test_push_creates_branch_on_changes(xeed, project_dir):
     (project_dir / "xeed.d" / "xeed.cfg").write_bytes(
@@ -136,9 +157,9 @@ def test_push_creates_branch_on_changes(xeed, project_dir):
     )
     fake_urlopen, calls = make_fake_urlopen()
     with patch("urllib.request.urlopen", fake_urlopen):
-        result = run_cmd(xeed, project_dir, "self/push")
+        result = run_cmd(xeed, project_dir, "self/push", "my-branch", "my commit message")
     assert result == 0 or result is None
-    post_urls = [url for method, url in calls if method == "POST"]
+    post_urls = [url for method, url, _ in calls if method == "POST"]
     assert any("/git/refs" in url for url in post_urls)
 
 def test_push_opens_pr_on_changes(xeed, project_dir):
@@ -147,8 +168,8 @@ def test_push_opens_pr_on_changes(xeed, project_dir):
     )
     fake_urlopen, calls = make_fake_urlopen()
     with patch("urllib.request.urlopen", fake_urlopen):
-        run_cmd(xeed, project_dir, "self/push")
-    post_urls = [url for method, url in calls if method == "POST"]
+        run_cmd(xeed, project_dir, "self/push", "my-branch", "my commit message")
+    post_urls = [url for method, url, _ in calls if method == "POST"]
     assert any("/pulls" in url for url in post_urls)
 
 def test_push_excludes_dunder_files(xeed, project_dir):
@@ -158,6 +179,27 @@ def test_push_excludes_dunder_files(xeed, project_dir):
     )
     fake_urlopen, calls = make_fake_urlopen()
     with patch("urllib.request.urlopen", fake_urlopen):
-        run_cmd(xeed, project_dir, "self/push")
-    put_urls = [url for method, url in calls if method == "PUT"]
+        run_cmd(xeed, project_dir, "self/push", "my-branch", "my commit message")
+    put_urls = [url for method, url, _ in calls if method == "PUT"]
     assert not any("__project__" in url for url in put_urls)
+
+def test_push_custom_branch(xeed, project_dir):
+    (project_dir / "xeed.d" / "xeed.cfg").write_bytes(
+        ORIGIN_XEED_CFG() + b"# local change\n"
+    )
+    fake_urlopen, calls = make_fake_urlopen()
+    with patch("urllib.request.urlopen", fake_urlopen):
+        run_cmd(xeed, project_dir, "self/push", "my-custom-branch", "my commit message")
+    branch_bodies = [body for method, url, body in calls if method == "POST" and "/git/refs" in url]
+    assert branch_bodies and branch_bodies[0].get("ref") == "refs/heads/my-custom-branch"
+
+
+def test_push_custom_message(xeed, project_dir):
+    (project_dir / "xeed.d" / "xeed.cfg").write_bytes(
+        ORIGIN_XEED_CFG() + b"# local change\n"
+    )
+    fake_urlopen, calls = make_fake_urlopen()
+    with patch("urllib.request.urlopen", fake_urlopen):
+        run_cmd(xeed, project_dir, "self/push", "my-branch", "my custom message")
+    put_bodies = [body for method, url, body in calls if method == "PUT"]
+    assert put_bodies and all(b.get("message") == "my custom message" for b in put_bodies)
