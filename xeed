@@ -130,6 +130,7 @@ class Cli:
         self._parser = parser
         self._ns = None
         self._remainder = None
+        self._cmd_descriptions = {}
 
     def parse(self, final=True):
         _parser = self._parser
@@ -137,7 +138,10 @@ class Cli:
                   "namespace": self._ns,
                   }
         if final:
-            self._ns = _parser.parse_args(**kwargs)
+            self._ns, unknown = _parser.parse_known_args(**kwargs)
+            if unknown:
+                current = getattr(self._ns, 'EXTRA_ARGS', '') or ''
+                self._ns.EXTRA_ARGS = (current + ' ' + ' '.join(unknown)).strip()
         else:
             self._ns, self._remainder = \
                 _parser.parse_known_args(**kwargs)
@@ -146,9 +150,14 @@ class Cli:
         return vars(self._ns)
 
     def print_help(self, new_hash, file=None):
-        self._parser.print_help(file=file)
+        print("usage: xeed <command> [args]", file=file)
         print(file=file)
-        print(f"Current xeed hash: {new_hash}", file=file)
+        print("commands:", file=file)
+        width = max((len(c) for c in self._cmd_descriptions), default=0)
+        for cmd, desc in sorted(self._cmd_descriptions.items()):
+            print(f"  {cmd:<{width}}  {desc}", file=file)
+        print(file=file)
+        print(f"current xeed hash: {new_hash}", file=file)
 
     @functools.cached_property
     def vars(self):
@@ -176,6 +185,9 @@ class Cli:
 
     def extend(self, subcmd, **kwargs):
         LOG.debug(f"{subcmd} {kwargs}")
+        tool = kwargs.get('tool')
+        if tool and tool.description:
+            self._cmd_descriptions[subcmd] = tool.description
         parser = self._subparsers.add_parser(subcmd, add_help=False)
         parser.set_defaults(**kwargs)
         parser.add_argument("EXTRA_ARGS",
@@ -489,6 +501,10 @@ class Tool:
     def cli(self):
         return self._config_blob.get("cmd", None)
 
+    @property
+    def description(self):
+        return self._config_blob.get("description", None)
+
     @classmethod
     def from_blob(cls, blob):
         return cls(blob)
@@ -601,6 +617,11 @@ def main():
     for tool_name, tool in toolchest.tools.items():
         cmd = tool.cli or tool_name
         cli.extend(cmd, tool=tool)
+
+    if cli._remainder and cli._remainder[0] in ('-h', '--help'):
+        cache = CACHE_CLS.from_blob(blob)
+        cli.print_help(cache.blob_hash)
+        return
 
     cli.parse(final=True)
     cache = CACHE_CLS.from_blob(blob)
