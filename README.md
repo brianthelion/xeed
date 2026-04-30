@@ -1,8 +1,6 @@
-`xeed.py` is an extremely compact project bootstrap -- "seed" -- that only
-depends on Python stdlib.
+`xeed` is an extremely compact project bootstrap — "seed" — that only depends on Python stdlib.
 
-`xeed.cfg` is the templated configuration file that allows `xeed.py` to be both
-compact and extensible.
+`xeed.d/` holds the configuration files that make `xeed` both compact and extensible.
 
 # Quick start
 ```
@@ -11,36 +9,57 @@ wget -qO- https://raw.githubusercontent.com/brianthelion/xeed/main/xeed | python
 
 This bootstraps `xeed` and its minimal config into the current directory. From there:
 ```
-./xeed self/pull   # pull the latest canonical xeed
-./xeed self/help   # list available commands
+xeed self/help   # list available commands
+xeed self/pull   # pull the latest canonical xeed
 ```
 
-# Intro
-The main goal with this little utility was to make a highly portable project
-bootstrap that only depends on two files -- one to configure it, and one to run
-it. The result is a project entrypoint that only depends on the Python stdlib
-but is sufficiently rich to replace large collections of complex `bash` scripts
-or otherwise rehouse them. `xeed.py` itself is just a clever runner, and it
-hands off its work to the tools configured in `xeed.cfg` with help from some
-simple custom templating.
+# Self-management
 
-A secondary goal here was to support `docker` as the main tool configured by
-default. This is entirely optional; you can configure the utility to hand off to
-whatever secondary executables you want to.
+`xeed` manages its own updates via the GitHub API — no git, no Docker required.
+
+## xeed self/pull
+
+Pulls the latest canonical `xeed` into the current project.
+
+1. Compares local canonical files against the version at `XEED_ORIGIN_HASH`
+2. If any local modifications are detected: exits with an error — run `xeed self/push` first
+3. Otherwise: overwrites local `xeed` and all non-dunder `xeed.d/*.cfg` files with HEAD, and updates `XEED_ORIGIN_HASH` in the script
+
+## xeed self/push
+
+Pushes local modifications to the canonical xeed repo as a PR.
+
+```
+xeed self/push <branch> "<commit message>"
+```
+
+1. Detects which canonical files differ from `XEED_ORIGIN_HASH`
+2. If nothing has changed: exits cleanly
+3. Otherwise: requires both a branch name and commit message, then creates the branch (or pushes to it if it already exists), commits the changed files, and opens a PR
+
+## xeed self/install
+
+Installs an additional `xeed.d/` config from the canonical repo:
+
+```
+xeed self/install docker
+```
+
+## File conventions
+
+**Dunder files** — any file in `xeed.d/` matching `__*.cfg` is project-local and never upstreamed by `self/push`. Use these for project-specific config.
+
+The `xeed` script itself and all non-dunder `xeed.d/*.cfg` files are canonical and always upstreamed.
 
 # Configuration
-`xeed.cfg` uses standard `configparser` syntax with a few tweaks.
 
-Untweaked `configparser` supports an "extended interpolation" mode that allows
-values in config file to reference itself by using placeholders, making it
-easier to define variables dynamically. When extended interpolation is enabled,
-you can include placeholders in the format `${section:option}` that refer to
-values in other sections or the same section. This adds flexibility to
-configuration files, as you can build dependencies between settings without
-hard-coding values multiple times. If a placeholder is found, `configparser`
-will replace it with the referenced value during parsing, allowing for
-streamlined and modular configuration management.
+`xeed.d/*.cfg` files use standard `configparser` syntax with a modified placeholder format: `{section.option}` instead of `${section:option}`. Placeholders are resolved recursively, so a value that resolves to a string containing `{...}` will be re-resolved.
 
-Our modified version aims to go a little further, but we haven't quite gotten
-there yet. As of now, all we've done is change the placeholder syntax to
-`{section.option}`.
+Multiline values use a `: ` prefix on each line:
+
+```ini
+[my.tool]
+code:
+    : print("hello")
+    : print("world")
+```
