@@ -50,6 +50,9 @@ def bootstrap(base_dir=None):
         print(f"Bootstrapping {rel_path}...")
         urllib.request.urlretrieve(url, dest)
     os.chmod(os.path.join(base_dir, "xeed"), 0o755)
+    install_cfg = os.path.join(xeed_d, "__xeed__.cfg")
+    with open(install_cfg, "w") as f:
+        f.write(f"[xeed.install]\nXEED_ORIGIN_HASH = {hash_}\n")
     print(f"Bootstrap complete. XEED_ORIGIN_HASH: {hash_}")
     return True
 
