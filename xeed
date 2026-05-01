@@ -479,20 +479,27 @@ class XeedCache(HashedCache, FileCache):
 
 class Tool:
     DEPENDS_ON_KEY = "depends_on"
+    SKIP_ON_KEY = "skip_on"
     SUCCESS = 0
 
     def __init__(self, blob):
         self._config_blob = blob
 
     def run(self, resolver, toolchest, **kwargs):
-        return self.run_dependencies(resolver, toolchest, **kwargs)
-
-    def run_dependencies(self, resolver, toolchest, **kwargs):
+        skip_on_name = self._config_blob.get(self.SKIP_ON_KEY, None)
+        if skip_on_name is not None:
+            skip_tool = toolchest.tools_long[skip_on_name]
+            if skip_tool.run(resolver, toolchest, **kwargs) == self.SUCCESS:
+                return self.SUCCESS
         dependency_name = self._config_blob.get(self.DEPENDS_ON_KEY, None)
-        if dependency_name is None:
-            return 0
-        dependency_tool = toolchest.tools_long[dependency_name]
-        return dependency_tool.run(resolver, toolchest, **kwargs)
+        if dependency_name is not None:
+            retcode = toolchest.tools_long[dependency_name].run(resolver, toolchest, **kwargs)
+            if retcode != self.SUCCESS:
+                return retcode
+        return self.execute(resolver, toolchest, **kwargs)
+
+    def execute(self, resolver, toolchest, **kwargs):
+        return self.SUCCESS
 
     @property
     def cli(self):
