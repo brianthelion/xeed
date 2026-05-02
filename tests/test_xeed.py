@@ -229,3 +229,70 @@ type: xeed.types.tool.subtypes.testtool
         assert len(list(toolchest.tools)) == 1
         assert 'test' in toolchest.tools
         assert toolchest.tools["test"].run() == 0
+
+
+def _make_toolchest_from_cfg(cfg_text):
+    with tempfile.NamedTemporaryFile("w", delete=False) as tmp:
+        tmp.write(cfg_text)
+        tmp.flush()
+        config = CONFIG_CLS()
+        config.read(tmp.name)
+        return ToolChest.from_blob(config.to_blob())
+
+
+def test_skip_on_skips_when_guard_exits_zero():
+    """If skip_on tool exits 0, the guarded tool should be skipped (also returns 0)."""
+    toolchest = _make_toolchest_from_cfg("""
+[xeed.types.tool.subtypes.guard_pass]
+code:
+    : class GuardPass(Tool):
+    :     def run(self, resolver, toolchest, **kwargs):
+    :         return 0
+
+[xeed.types.tool.subtypes.marker]
+code:
+    : class Marker(Tool):
+    :     def execute(self, resolver, toolchest, **kwargs):
+    :         kwargs['ran'].append('marker')
+    :         return self.SUCCESS
+
+[xeed.tools.foo.cmds.guard]
+type: xeed.types.tool.subtypes.guard_pass
+
+[xeed.tools.foo.cmds.main]
+type: xeed.types.tool.subtypes.marker
+skip_on: xeed.tools.foo.cmds.guard
+""")
+    ran = []
+    result = toolchest.tools_long["xeed.tools.foo.cmds.main"].run(None, toolchest, ran=ran)
+    assert result == 0
+    assert 'marker' not in ran
+
+
+def test_skip_on_proceeds_when_guard_exits_nonzero():
+    """If skip_on tool exits non-0, the guarded tool should execute normally."""
+    toolchest = _make_toolchest_from_cfg("""
+[xeed.types.tool.subtypes.guard_fail]
+code:
+    : class GuardFail(Tool):
+    :     def run(self, resolver, toolchest, **kwargs):
+    :         return 1
+
+[xeed.types.tool.subtypes.marker]
+code:
+    : class Marker(Tool):
+    :     def execute(self, resolver, toolchest, **kwargs):
+    :         kwargs['ran'].append('marker')
+    :         return self.SUCCESS
+
+[xeed.tools.foo.cmds.guard]
+type: xeed.types.tool.subtypes.guard_fail
+
+[xeed.tools.foo.cmds.main]
+type: xeed.types.tool.subtypes.marker
+skip_on: xeed.tools.foo.cmds.guard
+""")
+    ran = []
+    result = toolchest.tools_long["xeed.tools.foo.cmds.main"].run(None, toolchest, ran=ran)
+    assert result == 0
+    assert 'marker' in ran
